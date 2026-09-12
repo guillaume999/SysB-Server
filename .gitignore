@@ -1,0 +1,15 @@
+# Le binaire compile — il se refabrique, il n'a rien a faire dans le depot.
+sysb
+sysb.exe
+
+# ⚠️ LES BASES. `pb_data` contient les comptes des joueurs : jamais sur GitHub.
+pb_data/
+pb_data_*/
+
+# Les sorties des outils de comparaison.
+etat-*.json
+*.prof
+
+# Le workflow vit dans .github/workflows/ ; `pousser.ps1` l y recopie depuis
+# `workflow-image.yml`. Ne pas publier les deux.
+/workflow-image.yml

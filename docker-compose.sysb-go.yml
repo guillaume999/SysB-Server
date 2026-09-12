@@ -1,0 +1,20 @@
+# ⚠️ REMPLACE `docker-compose.pocketbase-sysb.yml`, il ne s'ajoute pas a lui.
+#
+#  CE QUI CHANGE :
+#   · l'image : `ghcr.io/muchobien/pocketbase` -> la tienne, construite par
+#     GitHub Actions a chaque push ;
+#   · le montage `pb_hooks` DISPARAIT. Les routes sont dans le binaire. Laisser
+#     les anciens hooks montes ferait exister deux fois les memes URL, et c'est
+#     le JS qui gagnerait — la panne serait invisible.
+#
+#  CE QUI NE CHANGE PAS : `pb_data`, le port, le nom du conteneur. Le retour
+#  arriere, c'est reposer l'ancien compose.
+services:
+  pocketbase-sysb:
+    image: ghcr.io/guillaume999/sysb-pocketbase:latest
+    container_name: pocketbase-sysb
+    restart: unless-stopped
+    ports:
+      - "8092:8090"
+    volumes:
+      - /volume1/Public/Docker/pocketbase-sysb/pb_data:/pb_data
