@@ -57,6 +57,30 @@ if ($bases) {
 }
 Bien 'aucune base de donnees ici'
 
+# ⚠️ LE MAIN DOIT PARTIR. Un motif `.gitignore` trop large peut avaler un
+# dossier entier sans le moindre avertissement : le 12/09, la ligne `sysb`
+# (sans barre oblique) a emporte `cmd/sysb/`, et on ne l'a su que deux minutes
+# plus tard, dans le journal de GitHub. On demande donc a git lui-meme, ici,
+# avant d'envoyer quoi que ce soit.
+Titre 'Le main part-il vraiment ?'
+if (Test-Path '.git') {
+  $indispensables = @('cmd/sysb/main.go', 'pb/adaptateur.go', 'Dockerfile',
+                      'go.mod', 'go.sum')
+  $manquants = @()
+  foreach ($f in $indispensables) {
+    git check-ignore -q $f
+    if ($LASTEXITCODE -eq 0) { $manquants += "$f (ignore par .gitignore)" }
+    elseif (-not (Test-Path $f)) { $manquants += "$f (absent du dossier)" }
+  }
+  if ($manquants) {
+    $manquants | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    Halte 'Des fichiers indispensables ne partiraient pas. L image ne se construirait pas.'
+  }
+  Bien 'les fichiers indispensables partent bien'
+} else {
+  Alerte 'depot pas encore initialise, verification reportee'
+}
+
 # --- 2. Le workflow a sa place ---------------------------------------------
 # Les outils distants de Claude n'ont pas le droit d'ecrire dans un dossier
 # `.github`. Le fichier arrive donc a plat, et c'est ici qu'il reprend le chemin
