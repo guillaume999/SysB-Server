@@ -15,7 +15,8 @@ import (
 // faute exacte du 12/09.
 func avecModele(d *depot) *depot {
 	d.templates = []record{{
-		"id": "tpl1", "typeOfPlateau": "ground", "largeur": 4.0, "hauteur": 1.0,
+		"id": "tpl1", "typeOfPlateau": "ground", "typeOfPlateau2": "Terre",
+		"largeur": 4.0, "hauteur": 1.0,
 		"tilesBase64": moteur.OctetsVersBase64([]int{1, 2, 0, 0}),
 		"etats": js([]any{
 			map[string]any{"x": 0, "z": 0, "stock": map[string]any{"ble": 40},
@@ -42,7 +43,7 @@ func vierge() *depot {
 
 func creer(t *testing.T, d *depot) (Reponse, record) {
 	t.Helper()
-	r := Assurer(d, "u1", "ground")
+	r := Assurer(d, "u1", "ground", "Terre")
 	if r.Code != 200 || r.Corps["cree"] != true {
 		t.Fatalf("assurer : %d %v", r.Code, r.Corps["verdict"])
 	}
@@ -132,12 +133,30 @@ func TestAssurerDitCeQuiNaPasTrouveDePlace(t *testing.T) {
 	}
 }
 
+// ⚠️ SANS MONDE, LE NOM N'A PAS BOUGE : les plateaux d'avant l'etiquetage
+// s'appellent toujours « Ma colonie », sans parenthese vide.
 func TestAssurerNommeSelonLeType(t *testing.T) {
 	for typ, attendu := range map[string]string{
 		"ground": "Ma colonie", "space": "Ma station", "tpt": "Mon plateau (tpt)",
 	} {
-		if n := NomParDefaut(typ); n != attendu {
+		if n := NomParDefaut(typ, ""); n != attendu {
 			t.Errorf("%s : « %s » au lieu de « %s »", typ, n, attendu)
+		}
+	}
+}
+
+// ⚠️⚠️ DEUX COLONIES CHEZ LE MEME JOUEUR DEPUIS LE 13/09, UNE PAR MONDE. Deux
+// lignes « Ma colonie » dans sa liste, ce serait deux plateaux qu'on ne peut
+// pas departager a l'oeil — exactement la raison qui avait deja fait sortir
+// TPTplateau de « Ma colonie » le 29/08.
+func TestAssurerMetLeMondeDansLeNom(t *testing.T) {
+	for _, c := range []struct{ typ, monde, attendu string }{
+		{"ground", "Jupiter", "Ma colonie (Jupiter)"},
+		{"space", "Jupiter", "Ma station (Jupiter)"},
+		{"ground", "Terre", "Ma colonie (Terre)"},
+	} {
+		if n := NomParDefaut(c.typ, c.monde); n != c.attendu {
+			t.Errorf("%s/%s : « %s » au lieu de « %s »", c.typ, c.monde, n, c.attendu)
 		}
 	}
 }
@@ -156,7 +175,7 @@ func TestAssurerDemarreLaVersionA1(t *testing.T) {
 func TestAssurerNEcritRienQuandLePlateauExiste(t *testing.T) {
 	d := avecModele(neuf())
 	d.plateaux[0]["typeOfPlateau"] = "ground"
-	r := Assurer(d, "u1", "ground")
+	r := Assurer(d, "u1", "ground", "Terre")
 	if r.Code != 200 || r.Corps["cree"] != false || r.Corps["ecrit"] != false {
 		t.Fatalf("%d %v", r.Code, r.Corps)
 	}
@@ -173,7 +192,7 @@ func TestAssurerNEcritRienQuandLePlateauExiste(t *testing.T) {
 func TestAssurerSansModeleRend404(t *testing.T) {
 	d := vierge()
 	d.templates = nil
-	r := Assurer(d, "u1", "ground")
+	r := Assurer(d, "u1", "ground", "Terre")
 	if r.Code != 404 {
 		t.Fatalf("code %d", r.Code)
 	}
@@ -188,7 +207,7 @@ func TestAssurerSansModeleRend404(t *testing.T) {
 func TestAssurerRefuseUnModeleSansDimensions(t *testing.T) {
 	d := vierge()
 	d.templates[0]["largeur"] = 0.0
-	if r := Assurer(d, "u1", "ground"); r.Code != 422 {
+	if r := Assurer(d, "u1", "ground", "Terre"); r.Code != 422 {
 		t.Fatalf("code %d (%v)", r.Code, r.Corps["verdict"])
 	}
 	if d.sauves != 0 {
@@ -202,7 +221,7 @@ func TestAssurerRefuseUnModeleSansDimensions(t *testing.T) {
 func TestAssurerRefuseUneGrilleQuiNeFaitPasLaTaille(t *testing.T) {
 	d := vierge()
 	d.templates[0]["tilesBase64"] = moteur.OctetsVersBase64([]int{1, 2})
-	r := Assurer(d, "u1", "ground")
+	r := Assurer(d, "u1", "ground", "Terre")
 	if r.Code != 422 {
 		t.Fatalf("code %d (%v)", r.Code, r.Corps["verdict"])
 	}
@@ -212,7 +231,7 @@ func TestAssurerRefuseUneGrilleQuiNeFaitPasLaTaille(t *testing.T) {
 }
 
 func TestAssurerRefuseSansType(t *testing.T) {
-	if r := Assurer(vierge(), "u1", ""); r.Code != 400 {
+	if r := Assurer(vierge(), "u1", "", "Terre"); r.Code != 400 {
 		t.Fatalf("code %d", r.Code)
 	}
 }
@@ -222,7 +241,7 @@ func TestAssurerRefuseSansType(t *testing.T) {
 func TestAssurerRefuseUnCatalogueIllisible(t *testing.T) {
 	d := vierge()
 	d.cat = moteur.ChargerCatalogue(sourceFactice{})
-	r := Assurer(d, "u1", "ground")
+	r := Assurer(d, "u1", "ground", "Terre")
 	if r.Code != 500 || !strings.Contains(moteur.Texte(r.Corps["verdict"]), "CATALOGUE ILLISIBLE") {
 		t.Fatalf("%d %v", r.Code, r.Corps["verdict"])
 	}
@@ -236,7 +255,113 @@ func TestAssurerRefuseUnCatalogueIllisible(t *testing.T) {
 func TestAssurerDitQuandLEcritureEchoue(t *testing.T) {
 	d := vierge()
 	d.sauverCasse = true
-	if r := Assurer(d, "u1", "ground"); r.Code != 500 {
+	if r := Assurer(d, "u1", "ground", "Terre"); r.Code != 500 {
 		t.Fatalf("code %d", r.Code)
+	}
+}
+
+// ─── Les mondes (13/09) ─────────────────────────────────────────────────────
+
+// ⚠️⚠️ L'ESSAI CENTRAL DE LA FONCTIONNALITE : le joueur a DEJA sa colonie
+// terrienne, il clique sur Jupiter, et il doit en obtenir une SECONDE. Sans la
+// comparaison du monde, la boucle « ai-je deja un plateau de ce type ? »
+// tombait sur la Terre et rendait 200 / « tu en as deja un » — avec le mauvais
+// plateau dedans, et rien pour s'en apercevoir.
+func TestAssurerFabriqueJupiterQuandLaTerreExisteDeja(t *testing.T) {
+	d := avecModele(neuf())
+	d.plateaux[0]["typeOfPlateau"] = "ground" // la colonie TERRIENNE, deja la
+	d.templates = append(d.templates, record{
+		"id": "tplJ", "typeOfPlateau": "ground", "typeOfPlateau2": "Jupiter",
+		"largeur": 4.0, "hauteur": 1.0,
+		"tilesBase64": moteur.OctetsVersBase64([]int{1, 2, 0, 0}),
+		"etats":       js([]any{map[string]any{"x": 0, "z": 0}}),
+	})
+
+	r := Assurer(d, "u1", "ground", "Jupiter")
+	if r.Code != 200 || r.Corps["cree"] != true {
+		t.Fatalf("%d %v", r.Code, r.Corps["verdict"])
+	}
+	if d.dernier == nil {
+		t.Fatal("aucun record cree")
+	}
+	// ⚠️ ET IL PORTE SON MONDE. Sans ce champ en base, la lecture suivante ne le
+	// reconnaitrait pas comme jupiterien et on en refabriquerait un a chaque
+	// ouverture du jeu.
+	if got := moteur.Texte(d.dernier["typeOfPlateau2"]); got != "Jupiter" {
+		t.Errorf("le plateau neuf doit porter son monde : %q", got)
+	}
+	if got := moteur.Texte(d.dernier["nom"]); got != "Ma colonie (Jupiter)" {
+		t.Errorf("le nom doit departager les deux colonies : %q", got)
+	}
+	// ⚠️ Et il vient du modele de JUPITER, pas de celui de la Terre : le modele
+	// terrien porte deux etats, le jupiterien un seul.
+	if n := len(d.dernier["etats"].([]any)); n != 1 {
+		t.Errorf("⚠️ recopie depuis le mauvais modele : %d etats au lieu de 1", n)
+	}
+}
+
+// ⚠️ LE MODELE SE CHOISIT SUR LES DEUX ETIQUETTES. Un modele `ground` de la
+// Terre ne doit PAS servir a fabriquer Jupiter : le joueur y debarquerait avec
+// le decor et les tuiles terriennes, et rien ne le dirait.
+func TestAssurerNePrendPasLeModeleDunAutreMonde(t *testing.T) {
+	d := vierge() // un seul modele, ground / Terre
+	r := Assurer(d, "u1", "ground", "Jupiter")
+	if r.Code != 404 {
+		t.Fatalf("code %d (%v)", r.Code, r.Corps["verdict"])
+	}
+	// ⚠️ LE VERDICT NOMME LE MONDE : « aucun modele ground » enverrait chercher
+	// un modele qui existe — il existe, mais ailleurs.
+	if !strings.Contains(moteur.Texte(r.Corps["verdict"]), "Jupiter") {
+		t.Errorf("le verdict doit nommer le monde : %v", r.Corps["verdict"])
+	}
+	if d.sauves != 0 {
+		t.Error("rien ne doit etre ecrit")
+	}
+}
+
+// ⚠️ LA MEME COLONIE DEUX FOIS NE SE FABRIQUE PAS DEUX FOIS, monde compris.
+func TestAssurerNEcritRienQuandLeMemeMondeExisteDeja(t *testing.T) {
+	d := avecModele(neuf())
+	d.plateaux[0]["typeOfPlateau"] = "ground"
+	r := Assurer(d, "u1", "ground", "Terre")
+	if r.Code != 200 || r.Corps["cree"] != false || d.sauves != 0 {
+		t.Fatalf("%d %v (sauves=%d)", r.Code, r.Corps["verdict"], d.sauves)
+	}
+	// ⚠️ Le resume rendu porte le monde : c'est par lui qu'Unity verifie qu'il a
+	// bien recu le plateau du monde demande.
+	if p := r.Corps["plateau"].(map[string]any); p["typeOfPlateau2"] != "Terre" {
+		t.Errorf("le resume doit porter le monde : %v", p)
+	}
+}
+
+// ⚠️⚠️ LE PIEGE DU CHAMP `t`, REJOUE MOT POUR MOT. `Record.Set` sur un champ
+// absent de la collection ne se plaint pas (PocketBase v0.39.2 retombe sur
+// `SetRaw`) : la valeur vit dans le record, `Get` la rend, et elle n'est perdue
+// qu'au SAVE. Sans ce refus, la colonie de Jupiter serait ecrite SANS monde,
+// jamais reconnue, et refabriquee a chaque ouverture du jeu — sous des 200.
+func TestAssurerRefuseUnePlateauxSansChampMonde(t *testing.T) {
+	d := vierge()
+	d.champsPlateau = []string{"id", "ownerId", "nom", "typeOfPlateau", "largeur",
+		"hauteur", "tilesBase64", "etats", "reserve", "version", "t"}
+	r := Assurer(d, "u1", "ground", "Terre")
+	if r.Code != 500 || !strings.Contains(moteur.Texte(r.Corps["verdict"]), "typeOfPlateau2") {
+		t.Fatalf("%d %v", r.Code, r.Corps["verdict"])
+	}
+	if d.sauves != 0 {
+		t.Error("rien ne doit etre ecrit")
+	}
+}
+
+// ⚠️ ET LA MEME COLLECTION SERT SANS BRONCHER TANT QU'AUCUN MONDE N'EST
+// DEMANDE : une base d'avant les mondes continue de fabriquer ses plateaux
+// comme avant. Un garde-fou qui fermerait le jeu pour un champ dont personne
+// ne se sert serait un garde-fou de trop.
+func TestAssurerSansMondeNeDemandeRienAuSchema(t *testing.T) {
+	d := vierge()
+	d.champsPlateau = []string{"id", "ownerId", "nom", "typeOfPlateau", "largeur",
+		"hauteur", "tilesBase64", "etats", "reserve", "version", "t"}
+	d.templates[0]["typeOfPlateau2"] = ""
+	if r := Assurer(d, "u1", "ground", ""); r.Code != 200 || r.Corps["cree"] != true {
+		t.Fatalf("%d %v", r.Code, r.Corps["verdict"])
 	}
 }

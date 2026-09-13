@@ -135,16 +135,26 @@ func Etat(d Depot, uid, plateauVoulu string) Reponse {
 		// type) »), et depuis le 12/09 c'est aussi par la que le jeu retrouve
 		// l'id d'un plateau DE CE TYPE — l'ancien `?type=` du JS n'existe plus.
 		// Les omettre rendait « 0x0 » avec un 200 tranquille.
+		//
+		// ⚠️⚠️ `typeOfPlateau2` EST DANS LA LISTE DEPUIS LE 13/09, ET CE N'EST
+		// PAS DU CONFORT NON PLUS. Le jeu cherche ici le plateau « ground » DU
+		// MONDE sur lequel le joueur vient de cliquer ; sans cette etiquette il
+		// ouvrirait la colonie terrienne en croyant ouvrir celle de Jupiter —
+		// ou, pire, en ferait fabriquer une deuxieme par `assurer`.
+		// ⚠️ RENDUE MEME VIDE : cote client, `""` veut dire « ce plateau n'a pas
+		// d'etiquette » et `null` (champ absent) veut dire « ce serveur ne
+		// connait pas les mondes ». Les confondre, c'est la panne du 12/09.
 		var liste []any
 		for _, rec := range records {
 			liste = append(liste, map[string]any{
-				"id":            moteur.Texte(moteur.Champ(rec, "id")),
-				"nom":           moteur.Texte(moteur.Champ(rec, "nom")),
-				"typeOfPlateau": moteur.Texte(moteur.Champ(rec, "typeOfPlateau")),
-				"largeur":       moteur.Entier(moteur.Champ(rec, "largeur"), 0),
-				"hauteur":       moteur.Entier(moteur.Champ(rec, "hauteur"), 0),
-				"version":       moteur.Entier(moteur.Champ(rec, "version"), 0),
-				"t":             moteur.Entier(moteur.Champ(rec, "t"), 0),
+				"id":             moteur.Texte(moteur.Champ(rec, "id")),
+				"nom":            moteur.Texte(moteur.Champ(rec, "nom")),
+				"typeOfPlateau":  moteur.Texte(moteur.Champ(rec, "typeOfPlateau")),
+				"typeOfPlateau2": moteur.Texte(moteur.Champ(rec, "typeOfPlateau2")),
+				"largeur":        moteur.Entier(moteur.Champ(rec, "largeur"), 0),
+				"hauteur":        moteur.Entier(moteur.Champ(rec, "hauteur"), 0),
+				"version":        moteur.Entier(moteur.Champ(rec, "version"), 0),
+				"t":              moteur.Entier(moteur.Champ(rec, "t"), 0),
 			})
 		}
 		return Reponse{200, map[string]any{"ok": true, "ecrit": false, "t": t,

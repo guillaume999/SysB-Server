@@ -137,14 +137,24 @@ func (d *depot) ChampsPlateau() []string {
 	return noms
 }
 
-// ModeleDuType : le modele d'un type, dans `templates`.
+// ModeleDuType : le modele d'un type ET d'un monde, dans `templates`.
 //
 // ⚠️ `nil, nil` QUAND IL N'Y EN A PAS, et surtout pas une erreur : « aucun
 // modele `ground` » n'est pas une panne de lecture, c'est une saisie a faire
 // sur le site — et c'est la route qui le dit, en 404 plutot qu'en 500.
-func (d *depot) ModeleDuType(typeVoulu string) (moteur.Enregistrement, error) {
-	recs, err := d.app.FindRecordsByFilter("templates", "typeOfPlateau = {:type}",
-		"created", 1, 0, map[string]any{"type": typeVoulu})
+//
+// ⚠️⚠️ LE FILTRE PORTE SUR LES DEUX ETIQUETTES DEPUIS LE 13/09. Il y a
+// maintenant plusieurs modeles `ground` en base — un par monde — et le premier
+// par date de creation serait toujours celui de la Terre : Jupiter se
+// fabriquerait avec le decor et les tuiles terriennes, sans un mot.
+// ⚠️ LA COMPARAISON EST STRICTE, LE VIDE COMPRIS : `typeOfPlateau2 = ""` ne
+// ramene que les modeles non etiquetes. Depuis le patch `etiquette-terre` il
+// n'y en a plus aucun — c'est voulu, la route repond alors 404 en nommant le
+// monde plutot que de servir n'importe lequel.
+func (d *depot) ModeleDuType(typeVoulu, monde string) (moteur.Enregistrement, error) {
+	recs, err := d.app.FindRecordsByFilter("templates",
+		"typeOfPlateau = {:type} && typeOfPlateau2 = {:monde}",
+		"created", 1, 0, map[string]any{"type": typeVoulu, "monde": monde})
 	if err != nil {
 		return nil, err
 	}
@@ -323,6 +333,11 @@ func Brancher(app core.App) {
 			var corps struct {
 				Joueur string `json:"joueur"`
 				Type   string `json:"type"`
+				// ⚠️ `monde` = `typeOfPlateau2` : sur QUEL monde on fabrique.
+				// Absent = chaine vide, et la comparaison reste stricte : un
+				// client qui l'oublie se fait refuser en 404, il ne se fait pas
+				// servir la Terre par defaut.
+				Monde string `json:"monde"`
 			}
 			if err := e.BindBody(&corps); err != nil {
 				return refuser(e, 400, "corps illisible : "+err.Error())
@@ -339,7 +354,7 @@ func Brancher(app core.App) {
 			// controle « ce plateau existe-t-il deja » infranchissable par deux
 			// ouvertures simultanees du jeu.
 			err := app.RunInTransaction(func(tx core.App) error {
-				rep = routes.Assurer(&depot{app: tx, cat: cat, t: t}, uid, corps.Type)
+				rep = routes.Assurer(&depot{app: tx, cat: cat, t: t}, uid, corps.Type, corps.Monde)
 				if rep.Code >= 500 {
 					return errAnnuler
 				}

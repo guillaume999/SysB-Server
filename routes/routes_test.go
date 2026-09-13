@@ -83,15 +83,19 @@ func (d *depot) Sauver(r moteur.Enregistrement) error {
 // 13/09.
 func (d *depot) ChampsPlateau() []string {
 	if d.champsPlateau == nil {
-		return []string{"id", "ownerId", "nom", "typeOfPlateau", "largeur", "hauteur",
-			"tilesBase64", "etats", "reserve", "version", "t"}
+		return []string{"id", "ownerId", "nom", "typeOfPlateau", "typeOfPlateau2",
+			"largeur", "hauteur", "tilesBase64", "etats", "reserve", "version", "t"}
 	}
 	return d.champsPlateau
 }
 
-func (d *depot) ModeleDuType(typeVoulu string) (moteur.Enregistrement, error) {
+// ⚠️ LES DEUX ETIQUETTES, COMME LE VRAI FILTRE POCKETBASE. Un faux qui ne
+// regarderait que le type rendrait le modele terrien pour Jupiter — et
+// l'essai qui doit attraper exactement ca serait vert pour rien.
+func (d *depot) ModeleDuType(typeVoulu, monde string) (moteur.Enregistrement, error) {
 	for _, m := range d.templates {
-		if moteur.Texte(m["typeOfPlateau"]) == typeVoulu {
+		if moteur.Texte(m["typeOfPlateau"]) == typeVoulu &&
+			moteur.Texte(m["typeOfPlateau2"]) == monde {
 			return m, nil
 		}
 	}
@@ -116,7 +120,8 @@ func neuf() *depot {
 		cat: cat, t: 100000,
 		plateaux: []record{{
 			"id": "pl1", "ownerId": "u1", "nom": "Ma colonie",
-			"typeOfPlateau": "colonie", "largeur": 4.0, "hauteur": 1.0, "version": 3.0,
+			"typeOfPlateau": "colonie", "typeOfPlateau2": "Terre",
+			"largeur": 4.0, "hauteur": 1.0, "version": 3.0,
 			"tilesBase64": moteur.OctetsVersBase64([]int{1, 2, 0, 0}),
 			"t":           float64(100000 - 3600),
 			"etats":       `[{"x":0,"z":0,"stock":{"ble":40}},{"x":1,"z":0}]`,
@@ -145,7 +150,11 @@ func TestLesRoutesRefusentUnePlateauxSansChampT(t *testing.T) {
 		"geste": func(d *depot) Reponse {
 			return Geste(d, "u1", DemandeGeste{Plateau: "pl1", Action: "poser", X: 2, Z: 0, Tuile: 1})
 		},
-		"assurer": func(d *depot) Reponse { return Assurer(d, "u1", "ground") },
+		// ⚠️ AVEC UN MONDE, et l'ordre des garde-fous compte : `t` d'abord.
+		// Cette collection factice n'a pas non plus `typeOfPlateau2`, et le
+		// verdict attendu ici reste celui du champ `t` — le plus grave des deux,
+		// puisque sans lui RIEN ne produit.
+		"assurer": func(d *depot) Reponse { return Assurer(d, "u1", "ground", "Terre") },
 	} {
 		d := avecModele(neuf())
 		d.champsPlateau = sansT
@@ -221,8 +230,31 @@ func TestLaListePorteLesDimensions(t *testing.T) {
 	if l["typeOfPlateau"] != "colonie" {
 		t.Errorf("le type sert a CHOISIR le plateau : %v", l["typeOfPlateau"])
 	}
+	// ⚠️ SANS LE MONDE, LE TYPE NE SUFFIT PLUS A CHOISIR : le joueur a un
+	// `ground` par monde, et le jeu ouvrirait le premier venu.
+	if l["typeOfPlateau2"] != "Terre" {
+		t.Errorf("le monde sert AUSSI a choisir le plateau : %v", l["typeOfPlateau2"])
+	}
 	if l["id"] != "pl1" {
 		t.Errorf("l'id sert a l'OUVRIR ensuite : %v", l["id"])
+	}
+}
+
+// ⚠️⚠️ LA CLE EST TOUJOURS LA, MEME SANS ETIQUETTE — et c'est CA que cet essai
+// garde. Cote client, `""` veut dire « ce plateau n'a pas de monde » et `null`
+// (clé absente) veut dire « ce serveur ne connait pas les mondes » : les deux
+// menent a des conduites opposees, et un `omitempty` pose un jour par
+// distraction les confondrait sans que rien ne rougisse.
+func TestLaListeRendLeMondeMemeVide(t *testing.T) {
+	d := neuf()
+	delete(d.plateaux[0], "typeOfPlateau2")
+	l := Etat(d, "u1", "").Corps["plateaux"].([]any)[0].(map[string]any)
+	v, y := l["typeOfPlateau2"]
+	if !y {
+		t.Fatal("la cle doit exister meme sans etiquette : son absence dit « vieux serveur »")
+	}
+	if v != "" {
+		t.Errorf("un plateau sans etiquette rend la chaine vide, pas %v", v)
 	}
 }
 

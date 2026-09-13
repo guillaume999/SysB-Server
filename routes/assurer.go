@@ -1,7 +1,23 @@
 // ============================================================
-//  routes/assurer.go — « JE N'AI PAS ENCORE DE PLATEAU DE CE TYPE, FABRIQUE-LE »
+//  routes/assurer.go — « JE N'AI PAS ENCORE DE PLATEAU ICI, FABRIQUE-LE »
 //
-//      POST /api/sysb/assurer      corps : { "type": "ground" }
+//      POST /api/sysb/assurer   corps : { "type": "ground", "monde": "Jupiter" }
+//
+//  ⚠️⚠️ UN PLATEAU S'IDENTIFIE PAR DEUX ETIQUETTES DEPUIS LE 13/09, PAS UNE.
+//  `type` (`typeOfPlateau` : ground / space / TPTplateau) dit SUR QUOI on joue ;
+//  `monde` (`typeOfPlateau2` : Terre / Jupiter…) dit OU. Le joueur a donc une
+//  colonie sur Terre ET une colonie sur Jupiter, et les deux sont des `ground`.
+//  Ne comparer que le type ferait rendre la colonie TERRIENNE a qui clique sur
+//  Jupiter — un 200 parfaitement tranquille, avec le mauvais plateau dedans.
+//
+//  ⚠️ LA COMPARAISON EST STRICTE, LE VIDE COMPRIS — la meme regle que le pinceau
+//  du site (patch `type-plateau-2` du 13/09). Un `monde` vide ne se rapproche
+//  QUE d'une etiquette vide : il n'y a pas de « monde par defaut » ici, parce
+//  qu'un defaut voudrait dire deviner, et deviner rendrait le plateau d'ailleurs.
+//  ⚠️ Consequence a connaitre : depuis que le patch `etiquette-terre` a marque
+//  tout l'existant « Terre », un client qui n'envoie PAS de monde ne retrouve
+//  plus rien et se fait refuser en 404. C'est voulu — il vaut mieux un refus qui
+//  nomme le monde qu'un doublon fabrique en silence.
 //
 //  ELLE BOUCHE LE TROU OUVERT LE 04/09 ET REPORTE LE 12/09. Depuis que les
 //  regles de `plateaux` sont fermees en `role='admin'`, le client ne peut plus
@@ -57,9 +73,14 @@ import (
 // est une interface que les faux des essais copient sans la comprendre.
 type DepotCreateur interface {
 	Depot
-	// Le modele d'un type, dans `templates`. `nil, nil` = il n'y en a pas —
-	// ce n'est pas une panne, c'est une saisie a faire sur le site.
-	ModeleDuType(typeVoulu string) (moteur.Enregistrement, error)
+	// Le modele d'un type ET d'un monde, dans `templates`. `nil, nil` = il n'y
+	// en a pas — ce n'est pas une panne, c'est une saisie a faire sur le site.
+	//
+	// ⚠️ LES DEUX ETIQUETTES, PAS UNE : un modele `ground` etiquete « Terre » ne
+	// doit jamais servir a fabriquer la colonie de Jupiter. Le joueur y
+	// debarquerait avec le decor et les tuiles de la Terre, sans qu'aucun
+	// message n'existe pour l'expliquer.
+	ModeleDuType(typeVoulu, monde string) (moteur.Enregistrement, error)
 	// Un record `plateaux` NEUF, pas encore ecrit. C'est `Sauver` qui l'ecrit.
 	NouveauPlateau() (moteur.Enregistrement, error)
 }
@@ -67,14 +88,27 @@ type DepotCreateur interface {
 // NomParDefaut — ⚠️ MEME TABLE QU'EN C#. Un type inconnu ne s'appelle PAS « Ma
 // colonie » : depuis le plateau TPT (29/08) il existe un troisieme type, et lui
 // donner le nom du sol ferait croire a un doublon dans la liste du joueur.
-func NomParDefaut(typeVoulu string) string {
+//
+// ⚠️ LE MONDE ENTRE DANS LE NOM POUR LA MEME RAISON, ET ELLE EST PLUS FORTE
+// DEPUIS LE 13/09 : deux colonies `ground` coexistent maintenant chez le meme
+// joueur, une par monde. Deux lignes « Ma colonie » dans sa liste, ce serait
+// deux plateaux impossibles a departager a l'oeil.
+// ⚠️ UN MONDE VIDE NE MET PAS DE PARENTHESE VIDE : les plateaux d'avant
+// l'etiquetage s'appellent « Ma colonie » tout court, et ils continuent.
+func NomParDefaut(typeVoulu, monde string) string {
+	var base string
 	switch typeVoulu {
 	case "ground":
-		return "Ma colonie"
+		base = "Ma colonie"
 	case "space":
-		return "Ma station"
+		base = "Ma station"
+	default:
+		base = fmt.Sprintf("Mon plateau (%s)", typeVoulu)
 	}
-	return fmt.Sprintf("Mon plateau (%s)", typeVoulu)
+	if monde == "" {
+		return base
+	}
+	return fmt.Sprintf("%s (%s)", base, monde)
 }
 
 func resume(rec moteur.Enregistrement) map[string]any {
@@ -82,14 +116,56 @@ func resume(rec moteur.Enregistrement) map[string]any {
 		"id":            moteur.Texte(moteur.Champ(rec, "id")),
 		"nom":           moteur.Texte(moteur.Champ(rec, "nom")),
 		"typeOfPlateau": moteur.Texte(moteur.Champ(rec, "typeOfPlateau")),
-		"largeur":       moteur.Entier(moteur.Champ(rec, "largeur"), 0),
-		"hauteur":       moteur.Entier(moteur.Champ(rec, "hauteur"), 0),
-		"version":       moteur.Entier(moteur.Champ(rec, "version"), 0),
+		// ⚠️ RENDU MEME VIDE, et Unity s'en sert pour distinguer « ce plateau
+		// n'a pas d'etiquette » (chaine vide) de « ce serveur ne connait pas
+		// encore les mondes » (champ ABSENT, donc `null` cote client). C'est la
+		// meme lecon que `refusees` le 13/09 : `[]` et `null` ne disent pas la
+		// meme chose, et un client qui les confond fabrique des doublons.
+		"typeOfPlateau2": moteur.Texte(moteur.Champ(rec, "typeOfPlateau2")),
+		"largeur":        moteur.Entier(moteur.Champ(rec, "largeur"), 0),
+		"hauteur":        moteur.Entier(moteur.Champ(rec, "hauteur"), 0),
+		"version":        moteur.Entier(moteur.Champ(rec, "version"), 0),
 	}
 }
 
-// Assurer : le plateau de ce type existe, ou il est fabrique depuis le modele.
-func Assurer(d DepotCreateur, uid, typeVoulu string) Reponse {
+// gardeChampMonde — ⚠️⚠️ LE CHAMP `typeOfPlateau2` SUR `plateaux`, RELEVE A
+// CHAQUE APPEL, ET SEULEMENT QUAND UN MONDE EST DEMANDE.
+//
+// Exactement le piege du champ `t` (13/09) : `Record.Set` sur un champ absent de
+// la collection ne se plaint pas — PocketBase retombe sur `SetRaw`, garde la
+// valeur dans le record, et `Get` la rend. Elle n'est perdue qu'au SAVE. Sans ce
+// controle, la colonie de Jupiter serait ecrite SANS monde, la lecture suivante
+// ne la reconnaitrait pas comme jupiterienne, et `Assurer` en fabriquerait une
+// autre a chaque ouverture du jeu — sous des 200 tranquilles.
+//
+// ⚠️ UNE LISTE VIDE NE SE JUGE PAS : ne pas savoir lire le schema n'est pas une
+// raison de refuser de jouer. Et un `monde` vide ne demande rien a ce champ :
+// une base d'avant les mondes continue de servir comme avant.
+func gardeChampMonde(d Depot, monde string) *Reponse {
+	if monde == "" {
+		return nil
+	}
+	champs := d.ChampsPlateau()
+	if len(champs) == 0 {
+		return nil
+	}
+	for _, n := range champs {
+		if n == "typeOfPlateau2" {
+			return nil
+		}
+	}
+	r := erreur(500, "SCHEMA : la collection `plateaux` n'a pas de champ `typeOfPlateau2`. "+
+		"C'est lui qui dit sur QUEL monde se joue un plateau : sans lui, la colonie "+
+		"fabriquee ici serait ecrite sans monde et refabriquee a chaque ouverture. "+
+		"Lance `patch-type-plateau-2-2026-09-13.js` (il pose le champ sur `tuiles`, "+
+		"`templates` ET `plateaux`).",
+		map[string]any{"champs_plateau": champs, "cree": false})
+	return &r
+}
+
+// Assurer : le plateau de ce type SUR CE MONDE existe, ou il est fabrique
+// depuis le modele qui porte les deux memes etiquettes.
+func Assurer(d DepotCreateur, uid, typeVoulu, monde string) Reponse {
 	if typeVoulu == "" {
 		return erreur(400, `"type" attendu ("ground", "space"…) : `+
 			`on fabrique UN type, jamais « tous ».`, map[string]any{"cree": false})
@@ -107,6 +183,11 @@ func Assurer(d DepotCreateur, uid, typeVoulu string) Reponse {
 	if r := gardeSchema(d); r != nil {
 		return *r
 	}
+	// ⚠️ AVANT TOUT LE RESTE : sans le champ, ce qu'on ecrirait plus bas serait
+	// un plateau sans monde, et on le refabriquerait indefiniment.
+	if r := gardeChampMonde(d, monde); r != nil {
+		return *r
+	}
 	t := d.Maintenant()
 
 	records, err := d.PlateauxDe(uid)
@@ -117,12 +198,18 @@ func Assurer(d DepotCreateur, uid, typeVoulu string) Reponse {
 		if moteur.Texte(moteur.Champ(rec, "typeOfPlateau")) != typeVoulu {
 			continue
 		}
+		// ⚠️ ET LE MONDE AUSSI. Sans cette ligne, le joueur qui a deja sa
+		// colonie terrienne se verrait rendre CELLE-LA en cliquant sur Jupiter,
+		// avec un 200 et un « ce joueur a deja un plateau de ce type ».
+		if moteur.Texte(moteur.Champ(rec, "typeOfPlateau2")) != monde {
+			continue
+		}
 		return Reponse{200, map[string]any{"ok": true, "ecrit": false, "cree": false,
-			"t": t, "joueur": uid, "verdict": "Ce joueur a deja un plateau de ce type.",
+			"t": t, "joueur": uid, "verdict": "Ce joueur a deja un plateau de ce type sur ce monde.",
 			"plateau": resume(rec), "lecture": cat.Lecture, "alertes": cat.Alertes, "refusees": cat.RefuseesTriees()}}
 	}
 
-	modele, err := d.ModeleDuType(typeVoulu)
+	modele, err := d.ModeleDuType(typeVoulu, monde)
 	if err != nil {
 		return erreur(500, "lecture du modele : "+err.Error(), map[string]any{"cree": false})
 	}
@@ -130,25 +217,31 @@ func Assurer(d DepotCreateur, uid, typeVoulu string) Reponse {
 		// ⚠️ CE N'EST PAS UNE PANNE, C'EST UNE CONFIGURATION A FAIRE. Le
 		// distinguer d'un 500 evite de chercher un bug la ou il manque une
 		// saisie sur le site.
-		return erreur(404, fmt.Sprintf("Aucun modele « %s » dans la collection `templates`. "+
-			"Cree-le depuis le site d'administration avant de lancer une partie.", typeVoulu),
-			map[string]any{"cree": false})
+		// ⚠️ LE VERDICT NOMME LES DEUX ETIQUETTES : « aucun modele ground »
+		// enverrait chercher un modele qui existe — il existe, mais sur un autre
+		// monde, et c'est CA qu'il faut lire.
+		return erreur(404, fmt.Sprintf("Aucun modele « %s » etiquete « %s » dans la collection "+
+			"`templates` (le monde compte autant que le type). Cree-le depuis le site "+
+			"d'administration, ou donne son etiquette « Type de plateau 2 » a un modele "+
+			"existant, avant de lancer une partie.", typeVoulu, monde),
+			map[string]any{"cree": false, "monde": monde})
 	}
 
 	largeur := moteur.Entier(moteur.Champ(modele, "largeur"), 0)
 	hauteur := moteur.Entier(moteur.Champ(modele, "hauteur"), 0)
 	if largeur <= 0 || hauteur <= 0 {
-		return erreur(422, fmt.Sprintf("Le modele « %s » n'a pas de dimensions exploitables "+
-			"(%d x %d).", typeVoulu, largeur, hauteur), map[string]any{"cree": false})
+		return erreur(422, fmt.Sprintf("Le modele « %s » de « %s » n'a pas de dimensions "+
+			"exploitables (%d x %d).", typeVoulu, monde, largeur, hauteur),
+			map[string]any{"cree": false, "monde": monde})
 	}
 	tilesBase64 := moteur.Texte(moteur.Champ(modele, "tilesBase64"))
 	// ⚠️ LA GRILLE SE VERIFIE AVANT, PAS APRES. Le JS l'eprouvait juste avant
 	// d'ecrire, en levant : une grille fausse devenait un 500 « EXCEPTION » la
 	// ou c'est un modele mal saisi. Ici c'est un refus qui NOMME le modele.
 	if n := len(moteur.Base64VersOctets(tilesBase64)); n != largeur*hauteur {
-		return erreur(422, fmt.Sprintf("Le modele « %s » a une grille de %d octets pour "+
-			"%d x %d = %d cases.", typeVoulu, n, largeur, hauteur, largeur*hauteur),
-			map[string]any{"cree": false})
+		return erreur(422, fmt.Sprintf("Le modele « %s » de « %s » a une grille de %d octets "+
+			"pour %d x %d = %d cases.", typeVoulu, monde, n, largeur, hauteur, largeur*hauteur),
+			map[string]any{"cree": false, "monde": monde})
 	}
 
 	// ─── Les etats du modele, recopies ─────────────────────────────────────
@@ -192,10 +285,14 @@ func Assurer(d DepotCreateur, uid, typeVoulu string) Reponse {
 	if err != nil || rec == nil {
 		return erreur(500, "creation du record impossible", map[string]any{"cree": false})
 	}
-	nom := NomParDefaut(typeVoulu)
+	nom := NomParDefaut(typeVoulu, monde)
 	rec.Set("ownerId", uid)
 	rec.Set("nom", nom)
 	rec.Set("typeOfPlateau", typeVoulu)
+	// ⚠️ LE MONDE EST POSE ICI, ET C'EST LA SEULE FOIS. Il ne bouge plus ensuite :
+	// ni la passe, ni le geste, ni rien n'a de raison de changer le monde d'un
+	// plateau. `gardeChampMonde` a deja verifie que la collection le retient.
+	rec.Set("typeOfPlateau2", monde)
 	rec.Set("largeur", largeur)
 	rec.Set("hauteur", hauteur)
 	rec.Set("tilesBase64", tilesBase64)
@@ -250,10 +347,12 @@ func Assurer(d DepotCreateur, uid, typeVoulu string) Reponse {
 	}
 
 	return Reponse{200, map[string]any{"ok": true, "ecrit": true, "cree": true,
-		"t": t, "joueur": uid,
-		"verdict": fmt.Sprintf("Plateau « %s » fabrique depuis le modele « %s ».", nom, typeVoulu),
+		"t": t, "joueur": uid, "monde": monde,
+		"verdict": fmt.Sprintf("Plateau « %s » fabrique depuis le modele « %s » de « %s ».",
+			nom, typeVoulu, monde),
 		// ⚠️ `plateau` EST LU PAR UNITY (`SysBApi.Assurer` -> `Resume`) : id,
-		// nom, typeOfPlateau, largeur, hauteur, version. Ne pas le renommer.
+		// nom, typeOfPlateau, typeOfPlateau2, largeur, hauteur, version. Ne pas
+		// le renommer.
 		"plateau":        resume(rec),
 		"etats_recopies": len(etats),
 		"cases_figees":   len(partie.Figes),
