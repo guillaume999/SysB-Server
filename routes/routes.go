@@ -38,6 +38,15 @@ type Depot interface {
 	PlateauParId(id string) (moteur.Enregistrement, error)
 	Utilisateur(uid string) (moteur.Enregistrement, error)
 	Sauver(r moteur.Enregistrement) error
+	// ChampsPlateau : les noms des champs que la collection `plateaux` retient
+	// REELLEMENT. Vide = on ne sait pas (et alors on ne juge pas).
+	//
+	// ⚠️⚠️ C'EST LA SEULE FACON DE VOIR QU'UN CHAMP MANQUE. `Record.Set` sur un
+	// champ absent de la collection ne se plaint pas : PocketBase retombe sur
+	// `SetRaw`, garde la valeur dans le record, et `Get` la rend (source
+	// v0.39.2). Elle n'est perdue qu'au SAVE. Reposer la valeur puis la relire
+	// — ce que faisait `Partie.Ecrire` — ne prouve donc RIEN.
+	ChampsPlateau() []string
 }
 
 // Reponse : ce que l'adaptateur rend tel quel.
@@ -65,6 +74,33 @@ func gardeCatalogue(cat *moteur.CatalogueCharge, quoi string) *Reponse {
 	return &r
 }
 
+// gardeSchema — ⚠️ LE CHAMP NOMBRE `t` SUR `plateaux`, RELEVE A CHAQUE APPEL.
+//
+// C'est le plateau qui porte le temps depuis le 11/09 (spec §1). Sans ce champ,
+// `Ecrire` pose un `t` que le SAVE jette : chaque lecture repart alors de
+// « maintenant », `Avancer` n'a jamais rien a avancer, et **plus rien ne
+// produit** — sous des 200 parfaitement tranquilles. Mesure du 13/09 : la
+// collection ne l'avait toujours pas, un mois apres.
+//
+// ⚠️ UNE LISTE VIDE NE SE JUGE PAS : on ne sait pas lire le schema, ce n'est pas
+// une raison de refuser de jouer.
+func gardeSchema(d Depot) *Reponse {
+	champs := d.ChampsPlateau()
+	if len(champs) == 0 {
+		return nil
+	}
+	for _, n := range champs {
+		if n == "t" {
+			return nil
+		}
+	}
+	r := erreur(500, "SCHEMA : la collection `plateaux` n'a pas de champ `t`. "+
+		"C'est le plateau qui porte le temps depuis le 11/09 : sans ce champ rien "+
+		"n'avance et rien ne produit. Ajoute un champ NOMBRE `t` dans l'admin.",
+		map[string]any{"champs_plateau": champs})
+	return &r
+}
+
 func technosDuJoueur(d Depot, uid string) map[string]int {
 	if u, err := d.Utilisateur(uid); err == nil && u != nil {
 		return moteur.TechnosDe(u)
@@ -79,6 +115,9 @@ func technosDuJoueur(d Depot, uid string) map[string]int {
 func Etat(d Depot, uid, plateauVoulu string) Reponse {
 	cat := d.Catalogue()
 	if r := gardeCatalogue(cat, "aucun etat rendu sur ces donnees"); r != nil {
+		return *r
+	}
+	if r := gardeSchema(d); r != nil {
 		return *r
 	}
 	t := d.Maintenant()
@@ -169,6 +208,9 @@ func Passe(d Depot, uid, plateauVoulu string, budget int) Reponse {
 	if r := gardeCatalogue(cat, "aucune ecriture"); r != nil {
 		return *r
 	}
+	if r := gardeSchema(d); r != nil {
+		return *r
+	}
 	t := d.Maintenant()
 	records, err := d.PlateauxDe(uid)
 	if err != nil {
@@ -221,9 +263,7 @@ func Passe(d Depot, uid, plateauVoulu string, budget int) Reponse {
 		// ⚠️ ON ECRIT DES QUE LE TEMPS A AVANCE, meme sans changement visible.
 		ecrire := partie.Plateau.T > partie.TAvant
 		if ecrire {
-			if err := partie.Ecrire(rec); err != nil {
-				return erreur(500, err.Error(), map[string]any{"plateau": partie.Id})
-			}
+			partie.Ecrire(rec)
 			if err := d.Sauver(rec); err != nil {
 				return erreur(500, "ecriture : "+err.Error(), map[string]any{"plateau": partie.Id})
 			}
@@ -293,6 +333,9 @@ func Geste(d Depot, uid string, dem DemandeGeste) Reponse {
 
 	cat := d.Catalogue()
 	if r := gardeCatalogue(cat, "aucun geste juge sur ces donnees"); r != nil {
+		return *r
+	}
+	if r := gardeSchema(d); r != nil {
 		return *r
 	}
 	t := d.Maintenant()
@@ -392,9 +435,7 @@ func Geste(d Depot, uid string, dem DemandeGeste) Reponse {
 	changements := partie.Changements()
 	reserveBouge := moteur.DifferenceReserve(cat.Genres(), partie.ReserveAvant, partie.Plateau.Reserve)
 
-	if err := partie.Ecrire(rec); err != nil {
-		return erreur(500, err.Error(), nil)
-	}
+	partie.Ecrire(rec)
 	versionApres := versionCourante + 1
 	rec.Set("version", versionApres)
 	if ok {

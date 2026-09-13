@@ -10,13 +10,32 @@
 #  l'instance. Ne pas suivre `latest` : un binaire maison sur une base qui
 #  bouge, c'est un matin ou plus rien ne compile.
 #
+#  ⚠️⚠️ ET LE COMPILATEUR AUSSI EST PINGLE — 1.25, PAS `latest`. Mesure du
+#  13/09 : construite avec `golang:1.27-alpine`, l'image MEURT (fatal error,
+#  vidage complet des goroutines, conteneur relance, 502 au proxy) des qu'on
+#  TOUCHE AU SCHEMA d'une collection — n'importe laquelle, `plateaux` comme
+#  `ages`, avec n'importe quel nom de champ. Les lectures et les ecritures de
+#  records, elles, passent. C'est la signature d'une corruption memoire, pas
+#  d'une erreur SQL.
+#
+#  POURQUOI : CGO est coupe, donc SQLite est `modernc.org/sqlite` — du C
+#  TRADUIT en Go, qui s'appuie sur `modernc.org/libc` et ses acrobaties
+#  `unsafe`. Cette bibliotheque suit de tres pres les internes du runtime Go.
+#  `go.mod` declare `go 1.25.0` et le workflow teste avec CETTE version
+#  (`go-version-file: go.mod`) : compiler l'image avec 1.27 faisait partir en
+#  production un binaire qu'aucun test n'avait jamais exerce.
+#
+#  ⚠️ NE PAS REMETTRE `golang:latest` NI UNE VERSION PLUS HAUTE « pour etre a
+#  jour » : la version d'ici doit rester celle de `go.mod`, sinon les tests
+#  verts de GitHub ne parlent plus du binaire livre.
+#
 #  ⚠️ `--platform=$BUILDPLATFORM` + `GOARCH=$TARGETARCH` : Go compile pour une
 #  autre architecture sans rien emuler. L'image amd64 et l'image arm64 sortent
 #  toutes les deux a la vitesse d'une compilation normale — pas de QEMU, pas de
 #  vingt minutes d'attente. C'est gratuit uniquement parce que CGO est coupe.
 # ============================================================
 
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src

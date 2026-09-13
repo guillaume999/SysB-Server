@@ -257,29 +257,29 @@ func (partie *Partie) VersEtats() []any {
 	return out
 }
 
-// Ecrire — ⚠️ VERIFIE QUE `t` EST RETENU : un champ absent de la collection est
-// avale EN SILENCE par PocketBase, et chaque passe repartirait alors du meme
-// instant. C'est la famille de pannes qui repondent 200.
-func (partie *Partie) Ecrire(r Enregistrement) error {
-	etats := partie.VersEtats()
-	r.Set("etats", etats)
+// Ecrire : l'etat, la reserve et le temps, prets a repartir en base.
+//
+// ⚠️⚠️ ELLE NE VERIFIE PLUS QUE `t` EST RETENU, ET IL FAUT SAVOIR POURQUOI.
+// Elle le faisait : elle reposait la valeur, la relisait, et levait si les deux
+// differaient. **Ce garde-fou ne pouvait pas fonctionner** — releve le 13/09
+// dans la source de PocketBase v0.39.2 : `Record.Set` sur un champ qui n'existe
+// PAS dans la collection retombe sur `SetRaw`, la valeur est gardee dans le
+// record, et `Get` la rend. La relecture tombait donc toujours juste, et la
+// valeur etait perdue **au moment du SAVE**, pas du `Set`.
+//
+// ⚠️ SON ESSAI ETAIT VERT PARCE QUE SON FAUX AVALAIT AU `Set` — une forme que
+// PocketBase n'a jamais eue. Meme famille que le 12/09 : un harnais qui
+// confirme l'hypothese au lieu de l'eprouver. Et le trou etait REEL : au 13/09
+// la collection `plateaux` n'avait toujours pas de champ `t`, donc le temps
+// n'etait jamais range et **plus rien ne produisait**.
+//
+// ⚠️ LE VRAI GARDE-FOU EST DANS `routes.gardeSchema` : il demande au depot les
+// champs que la collection retient VRAIMENT. Depuis `moteur/` on ne peut pas
+// voir un schema — c'est justement la frontiere que ce paquet defend.
+func (partie *Partie) Ecrire(r Enregistrement) {
+	r.Set("etats", partie.VersEtats())
 	r.Set("reserve", VersReserve(partie.Plateau))
 	r.Set("t", partie.Plateau.T)
-	if relu := Entier(Champ(r, "t"), -1); relu != partie.Plateau.T {
-		return &ChampAbsent{Nom: "t", Relu: relu, Ecrit: partie.Plateau.T}
-	}
-	return nil
-}
-
-type ChampAbsent struct {
-	Nom         string
-	Relu, Ecrit int
-}
-
-func (e *ChampAbsent) Error() string {
-	return "le champ `" + e.Nom + "` n'est pas retenu par la collection `plateaux` " +
-		"(relu : " + itoa(e.Relu) + ", ecrit : " + itoa(e.Ecrit) + ") — ajoute un champ " +
-		"nombre `" + e.Nom + "` dans l'admin avant d'armer quoi que ce soit"
 }
 
 func itoa(n int) string {

@@ -43,20 +43,26 @@ func TestBase64IllisibleRendVide(t *testing.T) {
 	}
 }
 
-// ─── Le garde-fou du champ `t` ──────────────────────────────────────────────
+// ─── Un record en memoire ───────────────────────────────────────────────────
 
-// recordFactice : un record qui AVALE certains champs, exactement comme
-// PocketBase avale en silence un champ absent de la collection.
+// recordFactice — ⚠️⚠️ IL A MENTI, ET SON MENSONGE A COUTE UN MOIS. Il avait un
+// jeu `avale` : certains champs y refusaient le `Set`, « exactement comme
+// PocketBase avale un champ absent de la collection ». **PocketBase ne fait pas
+// ca** : `Record.Set` sur un champ inconnu retombe sur `SetRaw`, garde la valeur
+// et la rend a `Get` (source v0.39.2) ; elle n'est perdue qu'au SAVE.
+//
+// L'essai qui s'appuyait dessus (`TestEcrireRefuseSiLeChampTNestPasRetenu`)
+// etait donc vert sur une forme qui n'existe pas, pendant que la vraie
+// collection `plateaux` n'avait pas de champ `t` et que plus rien ne produisait.
+// Le garde-fou vit maintenant dans `routes.gardeSchema`, qui demande les champs
+// au lieu de les deviner. ⚠️ NE PAS REMETTRE `avale` : un faux ne doit imiter
+// que ce que son voisin immediat fait vraiment.
 type recordFactice struct {
 	champs map[string]any
-	avale  map[string]bool
 }
 
 func (r *recordFactice) Get(nom string) any { return r.champs[nom] }
 func (r *recordFactice) Set(nom string, v any) {
-	if r.avale[nom] {
-		return // ⚠️ c'est LE comportement qu'on veut attraper
-	}
 	r.champs[nom] = v
 }
 
@@ -72,30 +78,6 @@ func partiePourTest(t *testing.T) *Partie {
 	b := CreerBatiment(g, Brut{"x": 0.0, "z": 0.0}, ferme)
 	p := CreerPlateau(1000, []*Batiment{b}, nil, g, nil, nil)
 	return &Partie{Plateau: p, TAvant: 1000}
-}
-
-func TestEcrireRefuseSiLeChampTNestPasRetenu(t *testing.T) {
-	partie := partiePourTest(t)
-	partie.Plateau.T = 4242
-
-	bon := &recordFactice{champs: map[string]any{}, avale: map[string]bool{}}
-	if err := partie.Ecrire(bon); err != nil {
-		t.Fatalf("une collection complete ne doit pas lever : %v", err)
-	}
-	if Entier(bon.Get("t"), -1) != 4242 {
-		t.Errorf("t mal ecrit : %v", bon.Get("t"))
-	}
-
-	// La collection n'a pas de champ `t` : PocketBase avale l'ecriture.
-	muet := &recordFactice{champs: map[string]any{}, avale: map[string]bool{"t": true}}
-	err := partie.Ecrire(muet)
-	if err == nil {
-		t.Fatal("un champ `t` avale DOIT lever — sans ca chaque passe repart du " +
-			"meme instant, et la route repond 200 comme si tout allait bien")
-	}
-	if _, ok := err.(*ChampAbsent); !ok {
-		t.Errorf("mauvais type d'erreur : %T", err)
-	}
 }
 
 // ⚠️ UNE CASE DONT LA TUILE EST REFUSEE N'EST PAS EFFACEE : elle est mise de
@@ -117,7 +99,7 @@ func TestUneTuileRefuseeGardeSaCase(t *testing.T) {
 	r := &recordFactice{champs: map[string]any{
 		"largeur": 2.0, "hauteur": 1.0, "tilesBase64": tiles, "t": 1000.0,
 		"etats": `[{"x":0,"z":0,"stock":{"ble":5}},{"x":1,"z":0,"stock":{"ble":7}}]`,
-	}, avale: map[string]bool{}}
+	}}
 
 	partie := ChargerPartie(r, cat, 1000)
 	if len(partie.Plateau.Batiments) != 1 {

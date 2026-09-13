@@ -57,9 +57,7 @@ func TestLeTourCompletDUneRoute(t *testing.T) {
 		t.Error("une heure de cycles doit faire bouger quelque chose")
 	}
 
-	if err := partie.Ecrire(rec); err != nil {
-		t.Fatalf("ecriture : %v", err)
-	}
+	partie.Ecrire(rec)
 	if Entier(rec.Get("t"), 0) != 4600 {
 		t.Errorf("le `t` ecrit vaut %v, attendu 4600", rec.Get("t"))
 	}

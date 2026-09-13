@@ -102,6 +102,11 @@ func Assurer(d DepotCreateur, uid, typeVoulu string) Reponse {
 	if r := gardeCatalogue(cat, "aucun plateau fabrique sur ces donnees"); r != nil {
 		return *r
 	}
+	// ⚠️ Fabriquer un plateau dans une collection sans champ `t`, c'est fabriquer
+	// un plateau qui ne vivra jamais : son temps ne sera pas range.
+	if r := gardeSchema(d); r != nil {
+		return *r
+	}
 	t := d.Maintenant()
 
 	records, err := d.PlateauxDe(uid)
@@ -239,12 +244,7 @@ func Assurer(d DepotCreateur, uid, typeVoulu string) Reponse {
 	if err := partie.Verifier(-1); err != nil {
 		return erreur(500, "GARDE-FOU : "+err.Error(), map[string]any{"cree": false})
 	}
-	// ⚠️ `Ecrire` verifie AUSSI que la collection retient `t` : sans le champ
-	// nombre `t` sur `plateaux` (l'etape 1.1 du 11/09), l'ecriture est avalee en
-	// silence et chaque passe repartirait du meme instant.
-	if err := partie.Ecrire(rec); err != nil {
-		return erreur(500, err.Error(), map[string]any{"cree": false})
-	}
+	partie.Ecrire(rec)
 	if err := d.Sauver(rec); err != nil {
 		return erreur(500, "ecriture : "+err.Error(), map[string]any{"cree": false})
 	}

@@ -24,6 +24,8 @@ type depot struct {
 	// Ce qu'`Assurer` demande en plus : les modeles, et le dernier record cree.
 	templates []record
 	dernier   record
+	// nil = la collection complete ; sinon exactement ces champs-la.
+	champsPlateau []string
 	// ⚠️ `Sauver` echoue quand c'est demande : une route doit dire une panne
 	// d'ecriture, pas repondre 200.
 	sauverCasse bool
@@ -76,6 +78,17 @@ func (d *depot) Sauver(r moteur.Enregistrement) error {
 	return nil
 }
 
+// ⚠️ LA LISTE DES CHAMPS EST UNE DONNEE DU FAUX, pas une constante : c'est ce
+// qui permet d'eprouver la collection SANS `t` — le vrai etat de la base au
+// 13/09.
+func (d *depot) ChampsPlateau() []string {
+	if d.champsPlateau == nil {
+		return []string{"id", "ownerId", "nom", "typeOfPlateau", "largeur", "hauteur",
+			"tilesBase64", "etats", "reserve", "version", "t"}
+	}
+	return d.champsPlateau
+}
+
 func (d *depot) ModeleDuType(typeVoulu string) (moteur.Enregistrement, error) {
 	for _, m := range d.templates {
 		if moteur.Texte(m["typeOfPlateau"]) == typeVoulu {
@@ -110,6 +123,50 @@ func neuf() *depot {
 			"reserve":     `{"or":250}`,
 		}},
 		users: map[string]record{"u1": {"technos": `{"irrigation":1}`}},
+	}
+}
+
+// ─── LE SCHEMA ──────────────────────────────────────────────────────────────
+
+// ⚠️⚠️ L'ESSAI QUI REMPLACE UN GARDE-FOU QUI NE GARDAIT PAS. `Partie.Ecrire`
+// posait `t` puis le relisait pour verifier qu'il etait retenu : PocketBase rend
+// toujours ce qu'on vient de poser, meme sur un champ inconnu (v0.39.2,
+// `Record.Set` -> `SetRaw`), et la valeur n'est perdue qu'au SAVE. Le controle
+// tombait donc toujours juste — pendant qu'en vrai la collection `plateaux`
+// n'avait PAS de champ `t`, que le temps n'etait jamais range, et que plus rien
+// ne produisait.
+func TestLesRoutesRefusentUnePlateauxSansChampT(t *testing.T) {
+	sansT := []string{"id", "ownerId", "nom", "typeOfPlateau", "largeur", "hauteur",
+		"tilesBase64", "etats", "reserve", "version"}
+
+	for nom, appel := range map[string]func(*depot) Reponse{
+		"etat":  func(d *depot) Reponse { return Etat(d, "u1", "pl1") },
+		"passe": func(d *depot) Reponse { return Passe(d, "u1", "pl1", 0) },
+		"geste": func(d *depot) Reponse {
+			return Geste(d, "u1", DemandeGeste{Plateau: "pl1", Action: "poser", X: 2, Z: 0, Tuile: 1})
+		},
+		"assurer": func(d *depot) Reponse { return Assurer(d, "u1", "ground") },
+	} {
+		d := avecModele(neuf())
+		d.champsPlateau = sansT
+		r := appel(d)
+		if r.Code != 500 || !strings.Contains(moteur.Texte(r.Corps["verdict"]), "champ `t`") {
+			t.Errorf("%s : %d %v", nom, r.Code, r.Corps["verdict"])
+		}
+		if d.sauves != 0 {
+			t.Errorf("%s a ecrit dans une base sans `t`", nom)
+		}
+	}
+}
+
+// ⚠️ VIDE = ON NE SAIT PAS LIRE LE SCHEMA, et ce n'est pas une raison de refuser
+// de jouer. Sans cette branche, le moindre accroc a la lecture du schema
+// fermerait le jeu.
+func TestUneListeDeChampsVideNeJugePas(t *testing.T) {
+	d := neuf()
+	d.champsPlateau = []string{}
+	if r := Etat(d, "u1", "pl1"); r.Code != 200 {
+		t.Fatalf("code %d (%v)", r.Code, r.Corps["verdict"])
 	}
 }
 

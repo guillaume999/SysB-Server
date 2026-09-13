@@ -112,6 +112,31 @@ func (d *depot) Utilisateur(uid string) (moteur.Enregistrement, error) {
 	return versLeMoteur(r), nil
 }
 
+// ChampsPlateau : les champs que la collection `plateaux` retient VRAIMENT.
+//
+// ⚠️⚠️ C'EST LE GARDE-FOU DU CHAMP `t`, ET IL NE POUVAIT PAS VIVRE AILLEURS.
+// `Partie.Ecrire` le faisait en reposant la valeur puis en la relisant — ca ne
+// prouve RIEN : `Record.Set` sur un champ absent de la collection retombe sur
+// `SetRaw`, garde la valeur dans le record et la rend a `Get` (v0.39.2). Elle
+// n'est perdue qu'au SAVE. Resultat mesure le 13/09 : `plateaux` n'avait
+// toujours pas de champ `t`, le temps n'etait jamais range, et plus rien ne
+// produisait — sous des 200 tranquilles.
+//
+// ⚠️ UNE LISTE VIDE EN CAS D'ERREUR, jamais une panne : ne pas savoir lire le
+// schema n'est pas une raison de fermer le jeu. C'est `routes.gardeSchema` qui
+// en decide.
+func (d *depot) ChampsPlateau() []string {
+	col, err := d.app.FindCollectionByNameOrId("plateaux")
+	if err != nil || col == nil {
+		return nil
+	}
+	noms := make([]string, 0, len(col.Fields))
+	for _, f := range col.Fields {
+		noms = append(noms, f.GetName())
+	}
+	return noms
+}
+
 // ModeleDuType : le modele d'un type, dans `templates`.
 //
 // ⚠️ `nil, nil` QUAND IL N'Y EN A PAS, et surtout pas une erreur : « aucun
