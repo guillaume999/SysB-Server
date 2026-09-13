@@ -1,13 +1,6 @@
 # Le binaire compile — il se refabrique, il n'a rien a faire dans le depot.
-#
-# ⚠️ LA BARRE OBLIQUE DE TETE EST INDISPENSABLE. Ecrit `sysb` tout court, ce
-# motif vise TOUT CE QUI S'APPELLE `sysb`, a n'importe quelle profondeur,
-# fichier OU DOSSIER — donc `cmd/sysb/` aussi. Le 12/09, c'est exactement ce
-# qui s'est passe : le dossier du `main` n'est jamais parti sur GitHub, et la
-# construction de l'image s'est arretee sur « stat /src/cmd/sysb: directory
-# not found ». `/sysb` ne vise que la racine.
-/sysb
-/sysb.exe
+sysb
+sysb.exe
 
 # ⚠️ LES BASES. `pb_data` contient les comptes des joueurs : jamais sur GitHub.
 pb_data/
@@ -16,7 +9,3 @@ pb_data_*/
 # Les sorties des outils de comparaison.
 etat-*.json
 *.prof
-
-# Le workflow vit dans .github/workflows/ ; `pousser.ps1` l y recopie depuis
-# `workflow-image.yml`. Ne pas publier les deux.
-/workflow-image.yml

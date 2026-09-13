@@ -123,6 +123,48 @@ func TestEtatSansPlateauRendLaListe(t *testing.T) {
 	}
 }
 
+// ⚠️ LA LISTE PORTE `largeur` / `hauteur`, ET C'EST DEVENU LOAD-BEARING le
+// 12/09 : depuis que l'ancien `?type=` du JS n'existe plus, le jeu retrouve le
+// plateau d'un type EN LISANT CETTE LISTE. Sans ces deux champs, l'ecran de
+// choix affichait « 0x0 » sous un 200 tranquille.
+func TestLaListePorteLesDimensions(t *testing.T) {
+	r := Etat(neuf(), "u1", "")
+	l := r.Corps["plateaux"].([]any)[0].(map[string]any)
+	if l["largeur"] != 4 || l["hauteur"] != 1 {
+		t.Errorf("largeur/hauteur attendus 4/1, recus %v/%v", l["largeur"], l["hauteur"])
+	}
+	if l["typeOfPlateau"] != "colonie" {
+		t.Errorf("le type sert a CHOISIR le plateau : %v", l["typeOfPlateau"])
+	}
+	if l["id"] != "pl1" {
+		t.Errorf("l'id sert a l'OUVRIR ensuite : %v", l["id"])
+	}
+}
+
+// ⚠️ LE RATTRAPAGE EST RENDU PAR `etat`, PAS SEULEMENT PAR `passe` : c'est ce
+// bloc qui alimente le « pendant ton absence... » a l'ouverture du plateau.
+// `passe`, elle, ne le met que dans ses `rapports`, un par plateau.
+func TestEtatRaconteLAbsence(t *testing.T) {
+	r := Etat(neuf(), "u1", "pl1")
+	rat, ok := r.Corps["rattrapage"].(map[string]any)
+	if !ok {
+		t.Fatalf("pas de bloc rattrapage : %v", r.Corps)
+	}
+	if rat["absence_s"] != 3600 {
+		t.Errorf("absence_s attendu 3600, recu %v", rat["absence_s"])
+	}
+	if rat["depuis"] != 100000-3600 {
+		t.Errorf("depuis attendu %d, recu %v", 100000-3600, rat["depuis"])
+	}
+	// ⚠️ COMPTE AVANT LE RATTRAPAGE : les deux cases du plateau de test.
+	if rat["cases"] != 2 {
+		t.Errorf("cases attendu 2, recu %v", rat["cases"])
+	}
+	if _, y := rat["cases_figees"]; !y {
+		t.Error("`cases_figees` est la SEULE mesure de penurie du modele a cycles")
+	}
+}
+
 func TestUnPlateauQuiNestPasAMoiEstIntrouvable(t *testing.T) {
 	if r := Etat(neuf(), "u2", "pl1"); r.Code != 404 {
 		t.Errorf("attendu 404, recu %d", r.Code)

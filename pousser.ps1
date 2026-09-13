@@ -9,12 +9,15 @@
 #      ghcr.io/guillaume999/sysb-pocketbase:latest
 #  que Portainer tire.
 #
-#  ⚠️ CE DOSSIER EST UN MIROIR de `serveur-go/`. Claude le regenere. N'y edite
-#  rien a la main : la prochaine regeneration ecraserait la modification.
+#  ⚠️ IL N'Y A PLUS DE MIROIR (2026-09-13). Ce dossier etait recopie dans un
+#  `SysB-Server/` qu'un script regenerait ; les deux versions pouvaient diverger.
+#  Le dossier est desormais le depot lui-meme, et `publier-le-serveur.ps1` a ete
+#  supprime. Edite ici, sans crainte : plus rien ne t'ecrase.
 #
-#  ⚠️ IL EST IMBRIQUE DANS LE DEPOT DU PROJET UNITY. Ajoute une ligne
-#  `SysB-Server/` au `.gitignore` de SySB001, sinon l'autre depot le verra et
-#  s'en plaindra a chaque commit.
+#  ⚠️ IL EST IMBRIQUE DANS LE DEPOT DU PROJET UNITY. La ligne `serveur-go/` du
+#  `.gitignore` de SysB est ce qui empeche l'autre depot de le voir. Ne la retire
+#  pas : sans elle, le depot du jeu s'en plaint a chaque commit, ou pire,
+#  l'enregistre comme un lien vide.
 # ============================================================
 
 $ErrorActionPreference = 'Continue'

@@ -247,6 +247,43 @@ basculer : deux routes du même nom, c'est la même classe de panne que deux
 écrivains sur `plateaux`. `pb_data` ne bouge pas — on revient en arrière en
 reposant l'ancien compose.
 
+### ⚠️⚠️ NON PORTÉE, ET CELLE-LÀ BLOQUE : `assurer`
+
+`POST /api/sysb/assurer` fabrique le plateau d'un joueur depuis le modèle de
+l'admin (`assurer.pb.js`, 15,6 Ko : il copie la grille, **ré-horodate les états
+à l'heure serveur** pour ne pas offrir au nouveau venu des semaines de
+production, et pose `version` à 1). Elle n'existe pas en Go.
+
+⚠️ **Et elle ne peut pas se remplacer côté client** : `plateaux` est fermée en
+`role = 'admin'` en lecture comme en écriture depuis le 04/09 — aucun jeton de
+joueur ne peut créer ce record. Conséquence mesurée, décidée **reportée le
+12/09** :
+
+| qui | ce qui se passe sur le serveur Go |
+|---|---|
+| un compte qui a déjà ses plateaux | **rien ne change**, tout marche |
+| un compte neuf, ou un type de plateau jamais ouvert | **aucun plateau**, `POST /api/sysb/assurer` → 404 |
+
+Donc : basculer en phase 3 est sans risque pour les comptes existants, mais
+**aucune nouvelle colonie ne peut naître** tant que ce n'est pas porté. Le jeu
+le dit maintenant à l'écran au lieu de rester vide (voir `SysBApi.Assurer`).
+
+### ⚠️ `?type=` N'EXISTE PLUS — et le jeu ne le demande plus
+
+Le JS acceptait `GET /api/sysb/etat?type=ground`. Le Go **ignorerait** le
+paramètre et rendrait la LISTE avec un 200 : Unity lisait alors `plateau` à la
+racine, ne trouvait rien, et affichait un écran vide **sans erreur** — la
+famille des pannes qui répondent 200.
+
+Tranché le 12/09 : le paramètre reste dehors, et c'est **le client** qui fait
+les deux pas — `GET /api/sysb/etat` (la liste), il y cherche le
+`typeOfPlateau`, puis `GET /api/sysb/etat?plateau=<id>`. Une route de moins à
+maintenir, et un aller-retour de plus à l'ouverture.
+
+⚠️ **Conséquence : `largeur`, `hauteur` et `typeOfPlateau` dans la liste ne sont
+plus du confort d'affichage, ils sont load-bearing.** Test :
+`TestLaListePorteLesDimensions`.
+
 ### Non portées : `recherche` et les deux routes à blanc
 
 `recherche.pb.js` (28 Ko) achète une techno et la paie sur le plateau hôte ;
@@ -257,7 +294,27 @@ de basculer pour de bon.
 
 ## Ce qui reste
 
-- **`recherche`, `passe-blanc`, `verdict-blanc`** — voir plus haut.
+- ⚠️⚠️ **`assurer`** — la seule qui empêche un compte neuf de jouer. Voir plus haut.
+- **`recherche`, `passe-blanc`, `verdict-blanc`** — voir plus haut. ✅ Vérifié le
+  12/09 : **Unity n'appelle aucune des trois.** `TechnologieUI.Lancer` affiche un
+  bandeau (« la recherche n'est pas encore branchée ») depuis le 06/09, et les
+  routes à blanc n'ont jamais eu d'appelant dans le jeu. La question laissée
+  ouverte par `ETAPES.md` (« si l'une de ces routes est utilisée par le jeu, il
+  faut le savoir avant la phase 3 ») est donc **fermée** : le jeu n'appelle que
+  cinq URL, et elles sont listées ci-dessous.
+
+### Les cinq URL que le jeu appelle, et rien d'autre
+
+Relevé exhaustif le 12/09 (`PocketBase.Call` n'apparaît que dans `SysBApi.cs`) :
+
+| appel Unity | route Go |
+|---|---|
+| `GET /api/sysb/etat` | ✅ |
+| `GET /api/sysb/etat?plateau=<id>` | ✅ |
+| `POST /api/sysb/passe?plateau=<id>` | ✅ |
+| `POST /api/sysb/geste` | ✅ |
+| `POST /api/sysb/assurer` | ❌ **404** — reporté |
+
 - **La première compilation et le déploiement**, qui demandent ta machine.
 - **`ameliorer`** (poser un niveau > 1) et **l'entretien / les effets des
   technos** : non portés, comme en JS. Voir plus haut.

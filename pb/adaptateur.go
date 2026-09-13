@@ -45,6 +45,27 @@ import (
 	"sysb/routes"
 )
 
+// enreg : un `*core.Record` vu par le moteur.
+//
+// ⚠️⚠️ TOUT RECORD QUI PART VERS LE MOTEUR PASSE PAR ICI, ET C'EST LE POINT.
+// PocketBase rend un champ `json` dans un `types.JSONRaw` — un type NOMME sur
+// `[]byte` — et le `switch v.(type)` du moteur compare des types EXACTS : il ne
+// le voyait pas. Resultat au premier demarrage reel (12/09) : TOUS les champs
+// json a nil, `GET /api/sysb/etat` -> 500 « CATALOGUE ILLISIBLE », 28 tuiles
+// lues, **0 palier et 0 refusee** (ce couple de zeros est la signature : des
+// tuiles mal saisies seraient REFUSEES, pas vides).
+//
+// ⚠️ NE JAMAIS RENDRE UN `*core.Record` NU au moteur. La reparation est ici, a
+// l'entree, a UN seul endroit — pas dans `moteur/lecture.go`, qui n'a pas le
+// droit de connaitre PocketBase, et surtout pas aux deux (`moteur` a un test
+// qui tombe si quelqu'un l'y remet).
+type enreg struct{ *core.Record }
+
+func (e enreg) Get(nom string) any { return Normaliser(e.Record.Get(nom)) }
+
+// versLeMoteur : le seul convertisseur. Utiliser partout ou un record sort.
+func versLeMoteur(r *core.Record) moteur.Enregistrement { return enreg{r} }
+
 // depot : `routes.Depot` branche sur une transaction PocketBase.
 //
 // ⚠️ LE CATALOGUE EST LU UNE FOIS PAR REQUETE, jamais par plateau : c'est
@@ -70,7 +91,7 @@ func (d *depot) PlateauxDe(uid string) ([]moteur.Enregistrement, error) {
 	}
 	out := make([]moteur.Enregistrement, 0, len(recs))
 	for _, r := range recs {
-		out = append(out, r)
+		out = append(out, versLeMoteur(r))
 	}
 	return out, nil
 }
@@ -80,7 +101,7 @@ func (d *depot) PlateauParId(id string) (moteur.Enregistrement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return r, nil
+	return versLeMoteur(r), nil
 }
 
 func (d *depot) Utilisateur(uid string) (moteur.Enregistrement, error) {
@@ -88,22 +109,25 @@ func (d *depot) Utilisateur(uid string) (moteur.Enregistrement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return r, nil
+	return versLeMoteur(r), nil
 }
 
+// Sauver — ⚠️ IL FAUT DEBALLER : ce que le moteur tient est un `enreg`, pas un
+// `*core.Record`. Le refus est explicite plutot que silencieux : une ecriture
+// qui ne part pas est exactement le genre de panne qui repond 200.
 func (d *depot) Sauver(r moteur.Enregistrement) error {
-	rec, ok := r.(*core.Record)
+	e, ok := r.(enreg)
 	if !ok {
 		return errPasUnRecord
 	}
-	return d.app.Save(rec)
+	return d.app.Save(e.Record)
 }
 
 type errT string
 
 func (e errT) Error() string { return string(e) }
 
-const errPasUnRecord = errT("ce n'est pas un record PocketBase")
+const errPasUnRecord = errT("ce n'est pas un record PocketBase enveloppe (voir versLeMoteur)")
 
 // sourceRecords : ce que `moteur.ChargerCatalogue` demande.
 type sourceRecords struct{ app core.App }
@@ -115,7 +139,7 @@ func (s sourceRecords) Tous(collection string) []moteur.Enregistrement {
 	}
 	out := make([]moteur.Enregistrement, 0, len(recs))
 	for _, r := range recs {
-		out = append(out, r)
+		out = append(out, versLeMoteur(r))
 	}
 	return out
 }
@@ -152,6 +176,13 @@ func Brancher(app core.App) {
 
 		// ─── GET /api/sysb/etat ─────────────────────────────────────────────
 		// ⚠️ HORS TRANSACTION, et c'est voulu : elle n'ecrit rien.
+		//
+		// ⚠️ ON NE LIT PAS `?type=`, ET C'EST DELIBERE (12/09). Le JS l'acceptait ;
+		// ici le client fait les deux pas lui-meme (la liste, puis l'id). NE PAS
+		// « le remettre au cas ou » : une route qui accepterait `type` sans que
+		// personne l'envoie est du code mort, et une route qui l'ACCEPTE A MOITIE
+		// — en l'ignorant — rend la LISTE avec un 200 la ou le client attend un
+		// plateau. C'est exactement l'ecran vide sans erreur du 12/09.
 		se.Router.GET("/api/sysb/etat", func(e *core.RequestEvent) error {
 			q := e.Request.URL.Query()
 			uid, _, refus := qui(e, q.Get("joueur"))
@@ -197,13 +228,13 @@ func Brancher(app core.App) {
 		// ─── POST /api/sysb/geste ───────────────────────────────────────────
 		se.Router.POST("/api/sysb/geste", func(e *core.RequestEvent) error {
 			var corps struct {
-				Joueur  string  `json:"joueur"`
-				Plateau string  `json:"plateau"`
-				Action  string  `json:"action"`
-				X       int     `json:"x"`
-				Z       int     `json:"z"`
-				Tuile   int     `json:"tuile"`
-				Version *int    `json:"version"`
+				Joueur  string `json:"joueur"`
+				Plateau string `json:"plateau"`
+				Action  string `json:"action"`
+				X       int    `json:"x"`
+				Z       int    `json:"z"`
+				Tuile   int    `json:"tuile"`
+				Version *int   `json:"version"`
 			}
 			if err := e.BindBody(&corps); err != nil {
 				return refuser(e, 400, "corps illisible : "+err.Error())

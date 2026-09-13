@@ -17,6 +17,24 @@
 //  fini. Tout le detecteur d'octets du JS (`estTableauDOctets`, `texteUtf8`)
 //  disparait — il ne defendait que contre une confusion de goja.
 //
+//  ⚠️⚠️ MAIS CE FICHIER NE VOIT JAMAIS LA FORME BRUTE DE POCKETBASE, ET C'EST
+//  UNE CONDITION, PAS UN HASARD. PocketBase rend un champ `json` dans un
+//  `types.JSONRaw` : un TYPE NOMME dont `[]byte` est le sous-jacent. Or **un
+//  `switch v.(type)` de Go compare des types EXACTS, jamais des types
+//  sous-jacents** — le `case []byte:` ci-dessous ne le verrait PAS.
+//
+//  C'est `pb.Normaliser` qui ramene ces formes a `[]byte` AVANT que le moteur ne
+//  les voie ; l'adaptateur est le seul endroit qui a le droit de connaitre
+//  PocketBase. Ne pas « rajouter un filet ici au cas ou » : deux endroits qui
+//  reparent la meme chose, c'est le jour ou l'un des deux ment.
+//
+//  ⚠️ CE QUE CA A COUTE, POUR QUE PERSONNE NE DEFASSE LA CHAINE : au premier
+//  demarrage reel (12/09), sans cette normalisation, TOUS les champs json
+//  valaient nil — `GET /api/sysb/etat` rendait 500 « CATALOGUE ILLISIBLE » avec
+//  `Ressources: 79, Tuiles: 28` mais **`TuilesAvecPalier: 0` ET
+//  `TuilesRefusees: 0`**. Ce couple de zeros est la signature : des tuiles mal
+//  saisies seraient REFUSEES, pas vides.
+//
 //  ⚠️ Ce qui RESTE vrai : un champ json peut arriver en objet deja decode, en
 //  chaine, en chaine VIDE (champ jamais rempli), ou absent. Les quatre se
 //  lisent ici, et une lecture ratee rend le zero du type — jamais une panne.

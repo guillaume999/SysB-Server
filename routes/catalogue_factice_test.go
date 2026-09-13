@@ -18,12 +18,29 @@ type sourceFactice map[string][]moteur.Enregistrement
 
 func (s sourceFactice) Tous(c string) []moteur.Enregistrement { return s[c] }
 
-func js(v any) string { b, _ := json.Marshal(v); return string(b) }
+// ⚠️ LES CHAMPS json ARRIVENT EN `[]byte` — LA FORME QUE L'ADAPTATEUR LIVRE,
+// pas celle que PocketBase produit. C'est volontaire, et c'est la seule qui
+// soit vraie ici : `pb.Normaliser` ramene le `types.JSONRaw` de PocketBase a
+// des octets nus AVANT que le moteur ne voie quoi que ce soit. Un faux doit
+// imiter son voisin immediat, pas la couche d'apres.
+//
+// ⚠️⚠️ CE FAUX A DEJA MENTI UNE FOIS. Il rendait des `string`, sous un
+// commentaire qui affirmait « c'est comme ca que PocketBase les rend » —
+// c'etait faux, `case string:` attrapait le faux, `case []byte:` n'attrapait
+// pas le vrai (un switch de type Go compare des types EXACTS), et **86 essais
+// verts n'ont rien vu** : au premier vrai demarrage, 28 tuiles lues, 0 palier,
+// 0 refusee, « CATALOGUE ILLISIBLE » (12/09). Le garde-fou de cette forme-la
+// vit maintenant dans `pb/normaliser_test.go`, qui la NOMME.
+//
+// ⚠️ `jsonTexte` reste a cote parce qu'un champ peut aussi arriver en chaine :
+// les deux formes doivent passer.
+func js(v any) []byte        { b, _ := json.Marshal(v); return b }
+func jsonTexte(v any) string { b, _ := json.Marshal(v); return string(b) }
 
 func sourceDeTest() sourceFactice {
 	return sourceFactice{
-		// ⚠️ Les champs json arrivent en CHAINE, comme PocketBase les rend sur
-		// ce chemin de lecture. `LireJson` doit les avaler.
+		// ⚠️ Champs json en `[]byte` (ce que livre l'adaptateur) — et un en
+		// CHAINE plus bas, exprès : `LireJson` doit avaler les DEUX.
 		"ressources": {
 			recCat{"code": "ble", "genre": "stock"},
 			recCat{"code": "pain", "genre": "stock"},
@@ -73,7 +90,11 @@ func sourceDeTest() sourceFactice {
 		},
 		"technologies": {
 			recCat{"code": "irrigation", "nom": "Irrigation", "batiment": 5.0,
-				"debloque": js([]any{60}), "technos_requises": js([]any{"base"})},
+				"debloque": js([]any{60}),
+				// ⚠️ CELUI-CI EN CHAINE, ET C'EST EXPRES : les deux formes doivent
+				// passer. Tout mettre sous une seule forme, c'est ce qui a laisse
+				// filer le 12/09.
+				"technos_requises": jsonTexte([]any{"base"})},
 			// ⚠️ Sans batiment : brouillon, elle n'entre pas.
 			recCat{"code": "vide", "batiment": 0.0},
 		},

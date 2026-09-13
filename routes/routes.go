@@ -90,18 +90,27 @@ func Etat(d Depot, uid, plateauVoulu string) Reponse {
 
 	if plateauVoulu == "" {
 		// La LISTE, sans rattrapage : c'est un menu, pas une partie.
+		//
+		// ⚠️ `largeur` / `hauteur` SONT DANS LA LISTE, et ce n'est pas du confort :
+		// c'est le seul endroit ou l'ecran de choix les lit (« nom (l x h --
+		// type) »), et depuis le 12/09 c'est aussi par la que le jeu retrouve
+		// l'id d'un plateau DE CE TYPE — l'ancien `?type=` du JS n'existe plus.
+		// Les omettre rendait « 0x0 » avec un 200 tranquille.
 		var liste []any
 		for _, rec := range records {
 			liste = append(liste, map[string]any{
 				"id":            moteur.Texte(moteur.Champ(rec, "id")),
 				"nom":           moteur.Texte(moteur.Champ(rec, "nom")),
 				"typeOfPlateau": moteur.Texte(moteur.Champ(rec, "typeOfPlateau")),
+				"largeur":       moteur.Entier(moteur.Champ(rec, "largeur"), 0),
+				"hauteur":       moteur.Entier(moteur.Champ(rec, "hauteur"), 0),
 				"version":       moteur.Entier(moteur.Champ(rec, "version"), 0),
 				"t":             moteur.Entier(moteur.Champ(rec, "t"), 0),
 			})
 		}
-		return Reponse{200, map[string]any{"ok": true, "t": t, "joueur": uid,
-			"plateaux": liste, "lecture": cat.Lecture, "alertes": cat.Alertes}}
+		return Reponse{200, map[string]any{"ok": true, "ecrit": false, "t": t,
+			"joueur": uid, "plateaux": liste, "lecture": cat.Lecture,
+			"alertes": cat.Alertes}}
 	}
 
 	for _, rec := range records {
@@ -109,9 +118,32 @@ func Etat(d Depot, uid, plateauVoulu string) Reponse {
 			continue
 		}
 		partie := moteur.ChargerPartie(rec, cat, t)
+		// ⚠️ COMPTE LES CASES AVANT LE RATTRAPAGE : c'est « combien de cases
+		// le moteur a fait avancer », pas « combien il en reste ».
+		cases := len(partie.Plateau.Batiments)
 		partie.Avancer(t, 0)
+
+		// ⚠️ LES MEMES GARDE-FOUS QU'AVANT ECRITURE, APPLIQUES AVANT REPONSE.
+		// Cette route n'ecrit rien, mais une LECTURE qui rend un plateau
+		// amoindri fait afficher un terrain faux au joueur — et le joueur pose
+		// dessus. Un etat qui ne peut pas etre vrai ne se montre pas plus qu'il
+		// ne se range.
+		if err := partie.Verifier(-1); err != nil {
+			return erreur(500, "GARDE-FOU : "+err.Error(),
+				map[string]any{"plateau": partie.Id})
+		}
+
 		return Reponse{200, map[string]any{"ok": true, "ecrit": false, "t": t,
 			"joueur": uid, "lecture": cat.Lecture, "alertes": cat.Alertes,
+			// ⚠️ CE QUI S'EST PASSE PENDANT L'ABSENCE, et c'est CETTE route qui
+			// le dit au client : `passe` ne le met que dans ses `rapports`, un
+			// par plateau. C'est le « pendant ton absence... » de l'ouverture.
+			"rattrapage": map[string]any{
+				"depuis":       partie.TAvant,
+				"absence_s":    t - partie.TAvant,
+				"cases":        cases,
+				"cases_figees": len(partie.Figes),
+			},
 			"etat": moteur.FaireBloc(rec, partie, technos,
 				moteur.Indicateurs(partie.Plateau, cat.GenresBrut, partie.Plateau.T))}}
 	}
