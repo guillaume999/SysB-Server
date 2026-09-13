@@ -74,8 +74,10 @@ func TestLeTourCompletDUneRoute(t *testing.T) {
 		t.Fatalf("le bloc doit decrire les 2 cases, il en a %d", len(bloc.Cases))
 	}
 	for _, c := range bloc.Cases {
-		if c.Satisfaction < 0 || c.Satisfaction > 100 {
-			t.Errorf("satisfaction hors bornes (%d) — elle est EN POUR CENT", c.Satisfaction)
+		// ⚠️ PLUS DE BORNE HAUTE (13/09) : une ligne bonus fait legitimement
+		// monter au-dessus de 100 (§5.5). Seul le plancher tient encore.
+		if c.Satisfaction < 0 {
+			t.Errorf("satisfaction negative (%d) — elle est EN POUR CENT", c.Satisfaction)
 		}
 	}
 	if bloc.TechnosAcquises["irrigation"] != 1 {

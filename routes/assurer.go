@@ -119,7 +119,7 @@ func Assurer(d DepotCreateur, uid, typeVoulu string) Reponse {
 		}
 		return Reponse{200, map[string]any{"ok": true, "ecrit": false, "cree": false,
 			"t": t, "joueur": uid, "verdict": "Ce joueur a deja un plateau de ce type.",
-			"plateau": resume(rec), "lecture": cat.Lecture, "alertes": cat.Alertes}}
+			"plateau": resume(rec), "lecture": cat.Lecture, "alertes": cat.Alertes, "refusees": cat.RefuseesTriees()}}
 	}
 
 	modele, err := d.ModeleDuType(typeVoulu)
@@ -258,7 +258,7 @@ func Assurer(d DepotCreateur, uid, typeVoulu string) Reponse {
 		"etats_recopies": len(etats),
 		"cases_figees":   len(partie.Figes),
 		"dotation":       map[string]any{"versee": sacNoms(cat, montants), "perdue": sacNoms(cat, perdu)},
-		"lecture":        cat.Lecture, "alertes": cat.Alertes}}
+		"lecture":        cat.Lecture, "alertes": cat.Alertes, "refusees": cat.RefuseesTriees()}}
 }
 
 func listeDe(v any) []any {

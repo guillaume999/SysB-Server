@@ -216,3 +216,77 @@ func TestCatalogueVideSeDitIllisible(t *testing.T) {
 		t.Error("un catalogue vide doit se dire illisible")
 	}
 }
+
+// ⚠️ CE QUE CET ESSAI TIENT : le client doit pouvoir GRISER la carte d'une
+// tuile que le serveur refuse, donc il lui faut les IDS — les `Alertes`, elles,
+// sont du texte. Sans ce champ, « Vieille scierie » resterait cliquable au
+// magasin et le refus tomberait au tap, sur un « le type 3 n'est pas dans le
+// catalogue » qui ne dit pas pourquoi (le 2026-09-13, en vrai, avec le 13).
+//
+// ⚠️ Il verifie aussi que la liste n'est JAMAIS nil : c'est ce qui permet au
+// client de distinguer « plus rien n'est refuse, efface tes marques » d'un
+// serveur d'avant ce champ, qui ne doit rien effacer.
+func TestRefuseesTriees(t *testing.T) {
+	cat := ChargerCatalogue(sourcePourTest())
+
+	liste := cat.RefuseesTriees()
+	if len(liste) != 1 {
+		t.Fatalf("%d refusee(s), 1 attendue (la Vieille scierie et son par_minute) : %v",
+			len(liste), liste)
+	}
+
+	e := liste[0]
+	if tid, _ := e["tid"].(float64); int(tid) != 3 {
+		t.Errorf("tid = %v, 3 attendu", e["tid"])
+	}
+	if nom, _ := e["nom"].(string); nom != "Vieille scierie" {
+		t.Errorf("nom = %q, « Vieille scierie » attendu — sans lui le client ne "+
+			"sait pas de quelle carte on parle", nom)
+	}
+	raison, _ := e["raison"].(string)
+	if !strings.Contains(raison, "par_minute") {
+		t.Errorf("raison = %q : elle doit NOMMER la saisie fautive, c'est tout "+
+			"l'interet de la remonter jusqu'a la carte", raison)
+	}
+}
+
+// ⚠️⚠️ LE CAS QUI TIENT LA GARANTIE « JAMAIS NIL », et il faut zero refus pour
+// l'atteindre : avec une seule entree, un `var out []Brut` et un
+// `make([]Brut, 0, n)` se comportent pareil, et la mutation passe inapercue
+// (verifie le 2026-09-13). Un catalogue sain doit rendre `[]`, qui se serialise
+// en `[]` — c'est ce qui dit au client « le serveur a repondu, efface tes
+// marques ». Un `null` ne se distingue pas d'un serveur d'avant ce champ, et le
+// client garderait ses cartes grisees apres la correction en base.
+func TestRefuseesTrieesJamaisNil(t *testing.T) {
+	cat := &CatalogueCharge{
+		ParTileId: map[int]tuileBrute{},
+		Refusees:  map[int]string{},
+	}
+	liste := cat.RefuseesTriees()
+	if liste == nil {
+		t.Fatal("catalogue sain : RefuseesTriees rend nil, donc `null` en JSON — " +
+			"le client ne peut plus distinguer « plus rien n'est refuse » d'un " +
+			"serveur d'avant ce champ, et ses cartes restent grisees")
+	}
+	if len(liste) != 0 {
+		t.Fatalf("%d refusee(s) sur un catalogue vide", len(liste))
+	}
+}
+
+// ⚠️ L'ORDRE EST UNE GARANTIE, pas un hasard d'affichage : une map Go se
+// parcourt au hasard, et une reponse qui change d'ordre a chaque appel se diffe
+// mal et se teste encore plus mal.
+func TestRefuseesTrieesParId(t *testing.T) {
+	cat := &CatalogueCharge{
+		ParTileId: map[int]tuileBrute{7: {Nom: "Sept"}, 2: {Nom: "Deux"}, 40: {Nom: "Quarante"}},
+		Refusees:  map[int]string{7: "a", 2: "b", 40: "c"},
+	}
+	var vus []int
+	for _, e := range cat.RefuseesTriees() {
+		tid, _ := e["tid"].(float64)
+		vus = append(vus, int(tid))
+	}
+	if len(vus) != 3 || vus[0] != 2 || vus[1] != 7 || vus[2] != 40 {
+		t.Fatalf("ordre %v, [2 7 40] attendu", vus)
+	}
+}

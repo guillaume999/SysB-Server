@@ -149,7 +149,7 @@ func Etat(d Depot, uid, plateauVoulu string) Reponse {
 		}
 		return Reponse{200, map[string]any{"ok": true, "ecrit": false, "t": t,
 			"joueur": uid, "plateaux": liste, "lecture": cat.Lecture,
-			"alertes": cat.Alertes}}
+			"alertes": cat.Alertes, "refusees": cat.RefuseesTriees()}}
 	}
 
 	for _, rec := range records {
@@ -173,7 +173,7 @@ func Etat(d Depot, uid, plateauVoulu string) Reponse {
 		}
 
 		return Reponse{200, map[string]any{"ok": true, "ecrit": false, "t": t,
-			"joueur": uid, "lecture": cat.Lecture, "alertes": cat.Alertes,
+			"joueur": uid, "lecture": cat.Lecture, "alertes": cat.Alertes, "refusees": cat.RefuseesTriees(),
 			// ⚠️ CE QUI S'EST PASSE PENDANT L'ABSENCE, et c'est CETTE route qui
 			// le dit au client : `passe` ne le met que dans ses `rapports`, un
 			// par plateau. C'est le « pendant ton absence... » de l'ouverture.
@@ -290,7 +290,7 @@ func Passe(d Depot, uid, plateauVoulu string, budget int) Reponse {
 	return Reponse{200, map[string]any{"ok": true, "ecrit": ecritures > 0, "t": t,
 		"joueur": uid, "plateaux_ecrits": ecritures, "fini": toutFini,
 		"lecture": cat.Lecture, "rapports": rapports, "etat": bloc,
-		"alertes": cat.Alertes}}
+		"alertes": cat.Alertes, "refusees": cat.RefuseesTriees()}}
 }
 
 func premiers(l []moteur.Changement, n int) []moteur.Changement {
@@ -491,7 +491,7 @@ func Geste(d Depot, uid string, dem DemandeGeste) Reponse {
 			"cases": len(partie.VersEtats())},
 		"changements": premiers(changements, 40), "changements_total": len(changements),
 		"reserve_bouge": reserveBouge, "etat": bloc,
-		"lecture": cat.Lecture, "alertes": cat.Alertes}}
+		"lecture": cat.Lecture, "alertes": cat.Alertes, "refusees": cat.RefuseesTriees()}}
 }
 
 func technosCatalogue(cat *moteur.CatalogueCharge) []moteur.Techno {

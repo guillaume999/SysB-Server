@@ -143,24 +143,32 @@ func MesurerIndice(p *Plateau, b *Batiment, t int, groupes *Groupes) (servi, dem
 		if q <= 0 {
 			continue
 		}
+		// Le rapport de la ligne : `servi / demande`. Pour une ligne « en
+		// direct » c'est celui du GROUPE (§4), sinon celui du coffre.
+		servi, demande := 0, q
 		if l.Direct {
 			// ⚠️ Hors cycle (la LECTURE d'un etat, pour l'afficher), il n'y a
 			// pas de groupe constitue : on lit ce que le plateau lui offrirait.
 			if g := groupes.Get(b.Tuile.Tid, l.Ressource); g != nil {
-				acc.Ajouter(g.Servi, g.Demande, q)
+				servi, demande = g.Servi, g.Demande
 			} else {
-				dispo := SurLePlateau(p, l.Ressource, t, b.Tuile.Tid)
-				if q < dispo {
-					dispo = q
+				servi = SurLePlateau(p, l.Ressource, t, b.Tuile.Tid)
+				if q < servi {
+					servi = q
 				}
-				acc.Ajouter(dispo, q, q)
 			}
 		} else {
-			dispo := Lire(p, b, l.Ressource, t)
-			if q < dispo {
-				dispo = q
+			servi = Lire(p, b, l.Ressource, t)
+			if q < servi {
+				servi = q
 			}
-			acc.Ajouter(dispo, q, q)
+		}
+		// ⚠️⚠️ §5.5 — UNE LIGNE BONUS N'ENTRE PAS DANS LA DEMANDE. Elle ajoute
+		// son pourcentage au prorata, et c'est la seule facon de depasser 100.
+		if l.Bonus > 0 {
+			acc.AjouterBonus(servi, demande, l.Bonus)
+		} else {
+			acc.Ajouter(servi, demande, q)
 		}
 	}
 	return acc.Servi(), acc.Demande()
@@ -175,6 +183,9 @@ func MesurerIndice(p *Plateau, b *Batiment, t int, groupes *Groupes) (servi, dem
 // (§5) ; une ligne ordinaire l'est par la satisfaction PROPRE du batiment — il
 // a 80 % de ce qu'il attend, il livre 80 %. Jamais les deux : ce serait compter
 // la penurie deux fois.
+//
+// ⚠️ Les lignes BONUS se consomment comme les autres (elles coutent vraiment) ;
+// elles ne changent que la satisfaction, et par elle l'escalier.
 func ConsoProd(p *Plateau, b *Batiment, t int) {
 	prox := Facteur(p, b) // §4bis — il plafonne TOUT le palier
 
@@ -211,7 +222,17 @@ func ConsoProd(p *Plateau, b *Batiment, t int) {
 			q = plein * RendementEscalier(p, l, t) / 100
 		case b.Demande > 0:
 			// ⚠️ ARRONDI VERS LE BAS (11/09).
-			q = plein * b.Servi / b.Demande
+			// ⚠️⚠️ ET PLAFONNE A 100 % (13/09) : une ligne ordinaire ne livre
+			// JAMAIS plus que sa quantite declaree, meme a 120 % de
+			// satisfaction. Le surplus ne paie que par l'escalier, la ou une
+			// tranche au-dessus de 100 le dit explicitement — sinon tout le
+			// catalogue se mettrait a sur-produire d'un coup, et le debit
+			// affiche sur la fiche cesserait d'etre un maximum.
+			servi := b.Servi
+			if servi > b.Demande {
+				servi = b.Demande
+			}
+			q = plein * servi / b.Demande
 		default:
 			q = plein
 		}
@@ -246,6 +267,13 @@ func DeQuoiTourner(p *Plateau, b *Batiment, t int) bool {
 	demande, dispo := 0, 0
 	for i := range b.Tuile.Utilisation {
 		l := &b.Tuile.Utilisation[i]
+		// ⚠️⚠️ §5.5 — UNE LIGNE BONUS NE BLOQUE JAMAIS UN CYCLE. Sans ce
+		// `continue`, une habitation sans gibier cesserait d'entamer le
+		// moindre cycle : le « en plus » deviendrait un « obligatoire », et
+		// une colonie mourrait de faim faute de viande de luxe.
+		if l.Bonus > 0 {
+			continue
+		}
 		q := QuantiteLigne(l, prox)
 		if q <= 0 {
 			continue

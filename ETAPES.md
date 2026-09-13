@@ -1,6 +1,9 @@
 # LA PROCÉDURE — coder ici, GitHub compile, le NAS sert
 
-> Réécrit le 12/09. **Une boucle, cinq étapes, aucune compilation à la main.**
+> Réécrit le 12/09, corrigé le 13/09 (le miroir `SysB-Server/` et
+> `publier-le-serveur` n'existent plus — ce fichier les nommait encore, et c'est
+> comme ça qu'on envoie quelqu'un lancer un script supprimé).
+> **Une boucle, cinq étapes, aucune compilation à la main.**
 >
 > ⚠️⚠️ **CE FICHIER DÉCRIVAIT AUTRE CHOSE JUSQU'AU 12/09** : il faisait installer
 > Go, compiler `sysb.exe` en local, rapatrier une copie de `pb_data` du NAS et
@@ -13,17 +16,28 @@
 
 ## 1. Coder — dans `serveur-go/`, et nulle part ailleurs
 
-`serveur-go/` est la source de vérité. `SysB-Server/` en est une **copie
-générée** par le script de l'étape 2 : on n'y touche jamais à la main, elle sera
-écrasée sans prévenir.
+⚠️⚠️ **CE DOSSIER **EST** LE DÉPÔT depuis le 13/09.** Il n'y a plus de miroir :
+le `SysB-Server/` qu'un script régénérait a disparu, et `publier-le-serveur.ps1`
+avec lui. Ce que tu vois ici est exactement ce qui part et exactement ce que
+GitHub compile. **Édite sans crainte : plus rien ne t'écrase.**
 
-## 2. Publier — `publier-le-serveur.bat`
+⚠️ Le dossier est **imbriqué dans le dépôt du projet Unity**. C'est la ligne
+`serveur-go/` du `.gitignore` de SysB qui empêche l'autre dépôt de le voir — ne
+pas la retirer.
 
-Double-clic. Il recopie la liste blanche vers `SysB-Server/`, commit, push.
+## 2. Pousser — `serveur-go\pousser.bat`
+
+Double-clic. Il commit ce dossier et le pousse sur `guillaume999/SysB-Server`.
 Il demande un message de commit : **Entrée** met la date du jour.
 
-⚠️ Il refuse de partir si `go.sum` manque (`go mod tidy`) ou si une base de
-données a atterri dans le dépôt.
+⚠️ Il refuse de partir si `go.sum` manque (`go mod tidy`), si une base de
+données a atterri dans le dossier, si un fichier indispensable est ignoré par
+git, ou s'il n'y a aucun workflow.
+
+⚠️ **Ne pas le confondre avec `SysB\pousser-sur-github.bat`**, qui pousse le
+**projet Unity** (`guillaume999/SySB`, branche `main1`). Deux dossiers, deux
+dépôts, deux scripts — et le jour où l'on se trompe, on cherche son travail
+dans le mauvais dépôt.
 
 ## 3. GitHub compile ET teste — tout seul, ~2 min
 

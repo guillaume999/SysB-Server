@@ -154,6 +154,19 @@ type Ligne struct {
 	// §4 — « en direct » : pris sans navette, sans limite de distance, et
 	// JAMAIS ALLE CHERCHER PAR UNE NAVETTE.
 	Direct bool
+	// §5.5 (13/09) — LIGNE BONUS, en pour cent. `0` = ligne ordinaire.
+	//
+	// ⚠️⚠️ CE N'EST PAS LE RETOUR DE `part`, ET LA DIFFERENCE EST TOUT :
+	// `part` declarait le poids de CHAQUE ligne, si bien que des maisons
+	// parfaitement nourries plafonnaient a la somme de leurs parts. Un bonus
+	// ne se declare QUE sur les lignes en plus : il n'entre pas dans la
+	// demande de base, il AJOUTE son pourcentage au prorata de ce qu'il
+	// recoit, et il ne peut donc que monter (§5.5).
+	//
+	// ⚠️ Une ligne bonus NE BLOQUE JAMAIS un cycle (`DeQuoiTourner`), sans
+	// quoi le « en plus » deviendrait un « obligatoire ».
+	// ⚠️ Une ligne de PRODUCTION ne porte pas de bonus — refuse au chargement.
+	Bonus int
 	// Une ligne de PRODUCTION peut SUIVRE un indicateur ; elle ne le fabrique
 	// jamais (§5.4).
 	Indicateur string
@@ -314,9 +327,15 @@ func ChargerLigne(g *Genres, brut Brut, ou string) (Ligne, error) {
 			"d'unites reelles (§3, le 1/3600 a disparu)", ou, brut["quantite"])
 	}
 
+	if v, y := brut["bonus"]; y && v != nil && !entierPositif(v) {
+		return l, refus("%s : bonus `%v` — un bonus de satisfaction est un "+
+			"POURCENTAGE entier et positif (§5.5)", ou, v)
+	}
+
 	l.Ressource = g.Reg.Inscrire(texte(brut, "ressource"))
 	l.Quantite = nombreOu(brut, "quantite", 0)
 	l.Direct = booleen(brut, "direct")
+	l.Bonus = nombreOu(brut, "bonus", 0)
 	l.Indicateur = texte(brut, "indicateur")
 	for _, t := range liste(brut, "tranches") {
 		if paire, ok := t.([]any); ok && len(paire) >= 2 {
@@ -518,6 +537,14 @@ func ChargerTuile(g *Genres, brut Brut) (*Tuile, error) {
 			return nil, refus("%s : la ligne « %s » suit l'indicateur « %s » sans aucune "+
 				"tranche — une ligne SUIT un indicateur, elle ne le fabrique pas (§5.4)",
 				nom, g.Reg.Nom(l.Ressource), l.Indicateur)
+		}
+		// ⚠️ §5.5 — un bonus se CONSOMME. Sur une production il n'aurait aucun
+		// sens, et il se lirait comme « ce batiment fabrique de la
+		// satisfaction » — precisement ce que le §5.4 a supprime.
+		if l.Bonus != 0 {
+			return nil, refus("%s : la ligne « %s » porte un bonus — un bonus de "+
+				"satisfaction se declare sur une CONSOMMATION, jamais sur une "+
+				"production (§5.5)", nom, g.Reg.Nom(l.Ressource))
 		}
 	}
 

@@ -122,7 +122,15 @@ func ligneBrute(v any, consommation bool) Brut {
 
 	if consommation {
 		l["direct"] = d["direct"] == true
+		// §5.5 — le bonus de satisfaction, en pour cent. Absent = 0.
+		l["bonus"] = float64(Entier(d["bonus"], 0))
 	} else {
+		// ⚠️ Un `bonus` egare sur une PRODUCTION est transmis tel quel pour
+		// que le moteur REFUSE la tuile (§5.5) — meme parti pris que
+		// `par_minute` ci-dessous : on ne repare jamais en silence ici.
+		if v, y := d["bonus"]; y && v != nil && v != "" && Entier(v, 0) != 0 {
+			l["bonus"] = float64(Entier(v, 0))
+		}
 		l["indicateur"] = Texte(d["indicateur"])
 		// ⚠️ Le site ecrit `{seuil, rendement}` ; le moteur lit des COUPLES.
 		var tr []any
@@ -380,6 +388,45 @@ type LectureCatalogue struct {
 }
 
 func (c *CatalogueCharge) Genres() *Genres { return c.genres }
+
+// RefuseesTriees : les tuiles que le chargement a REFUSEES, sous une forme que
+// le client peut lire — un id, un nom, la raison.
+//
+// ⚠️ ELLE EXISTE POUR QUE LE MAGASIN GRISE LA CARTE (2026-09-13). Le client lit
+// la collection `tuiles` en direct et n'applique QUE ses propres regles (un
+// modele 3D, `actif`, un id sur un octet) : une tuile que `ChargerTuile` refuse
+// ici lui parait parfaitement posable, et le joueur ne l'apprend qu'au tap, sur
+// un « le type 13 n'est pas dans le catalogue » qui ne dit pas pourquoi.
+// `Alertes` portait deja la raison, mais en TEXTE — on ne grise pas une carte
+// avec une phrase. Il fallait les ids.
+//
+// ⚠️ JAMAIS NIL, meme quand rien n'est refuse : un `[]` dit « le serveur a
+// repondu, il n'y a rien », un `null` ne se distingue pas d'un serveur d'avant
+// ce champ. Le client efface ses marques sur le premier, les garde sur le
+// second.
+//
+// ⚠️ Trie par id, comme tout ce qui sort d'une map ici : une reponse dont
+// l'ordre change a chaque appel se diffe mal et se teste encore plus mal.
+func (c *CatalogueCharge) RefuseesTriees() []Brut {
+	ids := make([]int, 0, len(c.Refusees))
+	for tid := range c.Refusees {
+		ids = append(ids, tid)
+	}
+	for i := 1; i < len(ids); i++ {
+		for j := i; j > 0 && ids[j] < ids[j-1]; j-- {
+			ids[j], ids[j-1] = ids[j-1], ids[j]
+		}
+	}
+	out := make([]Brut, 0, len(ids))
+	for _, tid := range ids {
+		out = append(out, Brut{
+			"tid":    float64(tid),
+			"nom":    c.ParTileId[tid].Nom,
+			"raison": c.Refusees[tid],
+		})
+	}
+	return out
+}
 
 // TuilePour — ⚠️ REND nil POUR UNE TUILE REFUSEE, et la raison est dans
 // `Alertes` (une fois par tuile). L'appelant ne fait PAS jouer une case dont la

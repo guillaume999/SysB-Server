@@ -199,7 +199,9 @@ type Bloc struct {
 //	                     serveur). Le client PREDIT a partir de la, et se recale
 //	                     sur l'en-tete HTTP `Date` (§1).
 //	Plateau.Etats        le format du §10 : `t_cycle`, `en_marche`, `navettes`.
-//	Cases[].Satisfaction EN POUR CENT (0-100), relue a l'instant.
+//	Cases[].Satisfaction EN POUR CENT, relue a l'instant. ⚠️ ELLE PEUT
+//	                     DEPASSER 100 depuis les lignes bonus (§5.5) — ne pas
+//	                     la borner cote client.
 //	Ressources           en ENTIERS D'UNITES REELLES — le 1/3600 a disparu.
 func FaireBloc(r Enregistrement, partie *Partie, technos map[string]int, indicateurs map[string]int) Bloc {
 	p := partie.Plateau
