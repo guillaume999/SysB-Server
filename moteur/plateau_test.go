@@ -1,6 +1,7 @@
 package moteur
 
 import (
+	"encoding/json"
 	"math/rand"
 	"testing"
 )
@@ -121,3 +122,28 @@ type catalogueFactice struct {
 
 func (c catalogueFactice) TuilePour(tid, niveau int) *Tuile { return c.tuiles[tid] }
 func (c catalogueFactice) Genres() *Genres                  { return c.g }
+
+// ⚠️ UN PLATEAU SANS AUCUN BATIMENT REND `[]`, JAMAIS `nil`. Une tranche nulle
+// part en base en `null` : le moteur la relit, mais un lecteur qui fait
+// `etats.map()` casse dessus. Vu en vrai le 13/09 sur le premier plateau
+// fabrique par `assurer` (modele sans etats).
+func TestUnPlateauVideEcritUneListeVide(t *testing.T) {
+	g := CreerGenres(map[string]string{"ble": "stock"})
+	p := CreerPlateau(1000, nil, nil, g,
+		&MondeDuPlateau{Largeur: 1, Hauteur: 1, Tiles: []int{0}}, nil)
+	partie := &Partie{Plateau: p}
+
+	etats := partie.VersEtats()
+	if etats == nil {
+		t.Fatal("VersEtats rend nil — ca s'ecrit `null` en base, pas `[]`")
+	}
+	if len(etats) != 0 {
+		t.Errorf("0 etat attendu, %d rendus", len(etats))
+	}
+
+	rec := &recordFactice{champs: map[string]any{}}
+	partie.Ecrire(rec)
+	if b, err := json.Marshal(rec.Get("etats")); err != nil || string(b) != "[]" {
+		t.Errorf("ce qui part en base : %s (attendu [])", b)
+	}
+}

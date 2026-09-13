@@ -248,8 +248,15 @@ func DifferenceReserve(g *Genres, avant, apres Sac) map[string]int {
 // ⚠️ ON REND LE VRAI TABLEAU, PAS UNE CHAINE : un champ `json` PocketBase
 // stockerait sinon le texte entre guillemets, et plus personne ne pourrait
 // l'interroger cote serveur.
+//
+// ⚠️ ET JAMAIS `nil` : une tranche nulle s'ecrit `null` en base, pas `[]`. Le
+// premier plateau fabrique par `assurer` (13/09) est sorti avec `etats: null`
+// — le moteur le relit sans broncher, mais tout lecteur qui fait `etats.map()`
+// (le site) casse sur `null`. Le §10 dit UNE LISTE, un plateau vide en est une
+// de zero element. `EcrireEtats` partait deja d'une tranche vide ; ici la
+// garantie se perdait au recopiage.
 func (partie *Partie) VersEtats() []any {
-	var out []any
+	out := []any{}
 	for _, e := range EcrireEtats(partie.Plateau) {
 		out = append(out, e)
 	}
