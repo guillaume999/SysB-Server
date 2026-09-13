@@ -377,6 +377,14 @@ func Geste(d Depot, uid string, dem DemandeGeste) Reponse {
 
 	// ⚠️ L'EMPIRE, pour une limite de portee « empire » : les AUTRES plateaux du
 	// joueur, celui-ci compris (il est deja rattrape).
+	//
+	// ⚠️⚠️ TOUS LES MONDES CONFONDUS, ET C'EST LA REGLE (tranchee le 13/09, en
+	// meme temps que les mondes) : l'empire d'un joueur REGROUPE ses planetes.
+	// Une limite « max 1 dans l'empire » vaut donc pour la Terre ET Jupiter
+	// ensemble, pas une fois par planete. `PlateauxDe` rend bien tous les
+	// plateaux du joueur, sans filtrer sur `typeOfPlateau2` — ne pas « reparer »
+	// ca en le restreignant au monde courant : ce serait changer une regle de
+	// jeu en croyant corriger un oubli.
 	var empire []moteur.Vue
 	if autres, err := d.PlateauxDe(uid); err == nil {
 		for _, r := range autres {

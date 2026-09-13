@@ -156,6 +156,14 @@ func (v *VueDuSol) CompterAcheves(tid int) int {
 	return n
 }
 
+// CompterEmpire : combien d'exemplaires de `tid` le joueur possede en tout.
+//
+// ⚠️⚠️ L'EMPIRE REGROUPE LES MONDES (tranche le 13/09, avec l'arrivee de
+// Jupiter). Les vues passees ici sont TOUS les plateaux du joueur — sa colonie
+// et sa station sur la Terre, les memes sur Jupiter. Une limite de portee
+// « empire » est donc une limite par JOUEUR, pas par planete. C'est une regle
+// de jeu, pas un effet de bord de la lecture : ne pas la restreindre au monde
+// courant sans qu'on l'ait demande.
 func CompterEmpire(empire []Vue, tid int) int {
 	n := 0
 	for _, p := range empire {
