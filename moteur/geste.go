@@ -214,6 +214,15 @@ type ComptePose struct {
 // `lignes` : le DEVIS (`Estimer`), pas `b.Tuile.Cout` — une pose offerte ne
 // garde que ses lignes `mobilise` (OFFERT NE VEUT PAS DIRE « SANS PERSONNEL »).
 //
+// ⚠️⚠️ LE DEVIS EST LA SEULE VERITE, MEME VIDE — ET C'EST TOUT LE BUG DU 13/09.
+// Il y avait ici un repli « `lignes == nil` -> `b.Tuile.Cout` ». Or `Estimer`
+// construit la liste offerte par `append` sur une tranche nulle : une tuile
+// OFFERTE qui n'a AUCUNE ligne `mobilise` (une habitation payee en bois, et
+// rien d'autre) rendait `Lignes == nil`. Le repli relisait alors le cout PLEIN
+// de la tuile, et le cadeau se facturait — « il manque 150 bois » sur une carte
+// qui annonce OFFERT. `nil` et `[]` disent la MEME chose ici : rien a payer.
+// Ne jamais redonner a `nil` un second sens.
+//
 // ⚠️ DEUX BOURSES, DEUX REGLES. Ce qui se PAIE se compare au DISPONIBLE et en
 // sort par `Retirer`. Ce qui se MOBILISE se compare au LIBRE et n'est JAMAIS
 // preleve : il est immobilise tant que le batiment tourne, parce que
@@ -229,9 +238,6 @@ func PayerLaPose(p *Plateau, b *Batiment, t int, lignes []Cout) ComptePose {
 	out := ComptePose{Depense: NouveauSac(g.Reg), Immobilise: NouveauSac(g.Reg)}
 	aPayer := NouveauSac(g.Reg)
 
-	if lignes == nil {
-		lignes = b.Tuile.Cout
-	}
 	for _, l := range lignes {
 		if l.Ressource == CodeInconnu || l.Quantite <= 0 || g.EstIndicateur(l.Ressource) {
 			continue
