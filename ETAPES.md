@@ -59,8 +59,13 @@ montage `pb_hooks`) et redéployer. Une minute, `pb_data` intact.
 
 ## ⚠️ Ce qui reste à faire à la main, une fois pour toutes
 
-- **`assurer` n'est pas portée** : un compte qui a déjà ses plateaux ne s'en
-  aperçoit jamais, un compte NEUF n'obtient aucun plateau (404). Reporté le 12/09.
+- ~~`assurer` n'est pas portée~~ — **portée le 13/09** (`routes/assurer.go`).
+  Elle refuse encore, mais pour de bonnes raisons : **404** s'il n'y a aucun
+  modèle de ce type dans `templates`, **422** si le modèle n'a pas de dimensions
+  ou une grille qui ne fait pas `largeur × hauteur`.
+  ⚠️ **Elle ne transcrit PAS `assurer.pb.js`** : le JS écrivait un `t` et un
+  `chantier` **par état**, c'est-à-dire le format d'avant le moteur à cycles.
+  Le plateau neuf part au format §10, à l'heure du serveur, cycles à zéro.
 - La première fois seulement : l'image sort **privée** sur GHCR et Portainer ne
   peut pas la tirer → github.com/guillaume999?tab=packages → `sysb-pocketbase`
   → Package settings → Change visibility → Public.

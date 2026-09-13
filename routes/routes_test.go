@@ -21,6 +21,9 @@ type depot struct {
 	plateaux []record
 	users    map[string]record
 	sauves   int
+	// Ce qu'`Assurer` demande en plus : les modeles, et le dernier record cree.
+	templates []record
+	dernier   record
 	// ⚠️ `Sauver` echoue quand c'est demande : une route doit dire une panne
 	// d'ecriture, pas repondre 200.
 	sauverCasse bool
@@ -60,7 +63,32 @@ func (d *depot) Sauver(r moteur.Enregistrement) error {
 		return errEcriture
 	}
 	d.sauves++
+	// Un record neuf entre dans la base a l'ecriture, pas avant : c'est ce qui
+	// rend le second appel d'`Assurer` capable de le retrouver.
+	if rec, ok := r.(record); ok {
+		for _, p := range d.plateaux {
+			if moteur.Texte(p["id"]) == moteur.Texte(rec["id"]) {
+				return nil
+			}
+		}
+		d.plateaux = append(d.plateaux, rec)
+	}
 	return nil
+}
+
+func (d *depot) ModeleDuType(typeVoulu string) (moteur.Enregistrement, error) {
+	for _, m := range d.templates {
+		if moteur.Texte(m["typeOfPlateau"]) == typeVoulu {
+			return m, nil
+		}
+	}
+	// ⚠️ `nil, nil` : « il n'y en a pas » n'est pas une panne de lecture.
+	return nil, nil
+}
+
+func (d *depot) NouveauPlateau() (moteur.Enregistrement, error) {
+	d.dernier = record{"id": "pl-neuf"}
+	return d.dernier, nil
 }
 
 type errEcritureT struct{}

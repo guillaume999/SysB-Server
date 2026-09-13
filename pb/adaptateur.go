@@ -112,6 +112,33 @@ func (d *depot) Utilisateur(uid string) (moteur.Enregistrement, error) {
 	return versLeMoteur(r), nil
 }
 
+// ModeleDuType : le modele d'un type, dans `templates`.
+//
+// ⚠️ `nil, nil` QUAND IL N'Y EN A PAS, et surtout pas une erreur : « aucun
+// modele `ground` » n'est pas une panne de lecture, c'est une saisie a faire
+// sur le site — et c'est la route qui le dit, en 404 plutot qu'en 500.
+func (d *depot) ModeleDuType(typeVoulu string) (moteur.Enregistrement, error) {
+	recs, err := d.app.FindRecordsByFilter("templates", "typeOfPlateau = {:type}",
+		"created", 1, 0, map[string]any{"type": typeVoulu})
+	if err != nil {
+		return nil, err
+	}
+	if len(recs) == 0 {
+		return nil, nil
+	}
+	return versLeMoteur(recs[0]), nil
+}
+
+// NouveauPlateau : un record `plateaux` neuf, PAS ENCORE ECRIT. C'est `Sauver`
+// qui l'ecrit, dans la meme transaction que le reste.
+func (d *depot) NouveauPlateau() (moteur.Enregistrement, error) {
+	col, err := d.app.FindCollectionByNameOrId("plateaux")
+	if err != nil {
+		return nil, err
+	}
+	return versLeMoteur(core.NewRecord(col)), nil
+}
+
 // Sauver — ⚠️ IL FAUT DEBALLER : ce que le moteur tient est un `enreg`, pas un
 // `*core.Record`. Le refus est explicite plutot que silencieux : une ecriture
 // qui ne part pas est exactement le genre de panne qui repond 200.
@@ -251,6 +278,43 @@ func Brancher(app core.App) {
 			var rep routes.Reponse
 			err := app.RunInTransaction(func(tx core.App) error {
 				rep = routes.Geste(&depot{app: tx, cat: cat, t: t}, uid, dem)
+				if rep.Code >= 500 {
+					return errAnnuler
+				}
+				return nil
+			})
+			if err != nil && err != errAnnuler {
+				return refuser(e, 500, "transaction annulee : "+err.Error())
+			}
+			return rendre(e, rep)
+		})
+
+		// ─── POST /api/sysb/assurer ─────────────────────────────────────────
+		// ⚠️ LA SEULE PORTE PAR LAQUELLE UN COMPTE NEUF OBTIENT UN PLATEAU :
+		// `plateaux` est fermee en `role='admin'` depuis le 04/09, le client ne
+		// peut plus le fabriquer lui-meme. La retirer rend le jeu injouable
+		// pour tout nouvel arrivant — et interdit de vider `plateaux`.
+		se.Router.POST("/api/sysb/assurer", func(e *core.RequestEvent) error {
+			var corps struct {
+				Joueur string `json:"joueur"`
+				Type   string `json:"type"`
+			}
+			if err := e.BindBody(&corps); err != nil {
+				return refuser(e, 400, "corps illisible : "+err.Error())
+			}
+			uid, _, refus := qui(e, corps.Joueur)
+			if refus != "" {
+				return refuser(e, 401, refus)
+			}
+
+			cat := moteur.ChargerCatalogue(sourceRecords{app})
+			t := moteur.Maintenant()
+			var rep routes.Reponse
+			// ⚠️ TOUTE LA ROUTE DANS LA TRANSACTION : c'est ce qui rend le
+			// controle « ce plateau existe-t-il deja » infranchissable par deux
+			// ouvertures simultanees du jeu.
+			err := app.RunInTransaction(func(tx core.App) error {
+				rep = routes.Assurer(&depot{app: tx, cat: cat, t: t}, uid, corps.Type)
 				if rep.Code >= 500 {
 					return errAnnuler
 				}
