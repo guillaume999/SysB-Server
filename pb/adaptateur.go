@@ -191,6 +191,28 @@ func (d *depot) Planetes() ([]moteur.Enregistrement, error) {
 	return out, nil
 }
 
+// NouvellePlanete / NouveauTemplate : les deux records que `ma-planete` cree.
+//
+// ⚠️ C'EST LE SERVEUR QUI LES POSE, PAS LE CLIENT. `templates.create` est admin
+// dans les regles d'API, exprès : un joueur qui pourrait creer un modele
+// pourrait en creer un chez quelqu'un d'autre. Le superuser du binaire passe
+// au-dessus des regles — c'est tout l'interet d'avoir une route.
+func (d *depot) NouvellePlanete() (moteur.Enregistrement, error) {
+	col, err := d.app.FindCollectionByNameOrId("planetes")
+	if err != nil {
+		return nil, err
+	}
+	return versLeMoteur(core.NewRecord(col)), nil
+}
+
+func (d *depot) NouveauTemplate() (moteur.Enregistrement, error) {
+	col, err := d.app.FindCollectionByNameOrId("templates")
+	if err != nil {
+		return nil, err
+	}
+	return versLeMoteur(core.NewRecord(col)), nil
+}
+
 // NouveauPlateau : un record `plateaux` neuf, PAS ENCORE ECRIT. C'est `Sauver`
 // qui l'ecrit, dans la meme transaction que le reste.
 func (d *depot) NouveauPlateau() (moteur.Enregistrement, error) {
@@ -399,8 +421,50 @@ func Brancher(app core.App) {
 			return rendre(e, rep)
 		})
 
+		// ⚠️ LA PLANETE D'UN JOUEUR SE CREE ICI, ET NULLE PART AILLEURS. Ni a
+		// l'inscription (elle serait injouable en attendant que l'admin ouvre
+		// quelque chose), ni par le client en ecrivant dans `planetes` (la
+		// collection est en creation admin). Voir `routes/maplanete.go`.
+		se.Router.POST("/api/sysb/ma-planete", func(e *core.RequestEvent) error {
+			var corps struct {
+				Joueur   string `json:"joueur"`
+				Nom      string `json:"nom"`
+				Modele3d string `json:"modele3d"`
+				Icone    string `json:"icone"`
+			}
+			if err := e.BindBody(&corps); err != nil {
+				return refuser(e, 400, "corps illisible : "+err.Error())
+			}
+			uid, _, refus := qui(e, corps.Joueur)
+			if refus != "" {
+				return refuser(e, 401, refus)
+			}
+
+			cat := moteur.ChargerCatalogue(sourceRecords{app})
+			t := moteur.Maintenant()
+			var rep routes.Reponse
+			// ⚠️ TOUTE LA ROUTE DANS LA TRANSACTION : la planete et ses DEUX
+			// modeles partent ensemble, ou pas du tout. Une planete sans modele
+			// est une planete qu'on ne peut pas ouvrir, et personne ne saurait
+			// qu'il faut la reparer.
+			err := app.RunInTransaction(func(tx core.App) error {
+				rep = routes.MaPlanete(&depot{app: tx, cat: cat, t: t}, uid,
+					corps.Nom, corps.Modele3d, corps.Icone)
+				if rep.Code >= 400 {
+					return errAnnuler
+				}
+				return nil
+			})
+			if err != nil && err != errAnnuler {
+				return refuser(e, 500, "transaction annulee : "+err.Error())
+			}
+			return rendre(e, rep)
+		})
+
 		return se.Next()
 	})
+
+	brancherCrochetTuiles(app)
 }
 
 const errAnnuler = errT("annulation volontaire")

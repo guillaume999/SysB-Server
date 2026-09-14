@@ -2,6 +2,7 @@ package routes
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -32,6 +33,9 @@ type depot struct {
 	// ⚠️ `Sauver` echoue quand c'est demande : une route doit dire une panne
 	// d'ecriture, pas repondre 200.
 	sauverCasse bool
+	// Ce que `ma-planete` a fabrique.
+	planetesCreees []record
+	templatesCrees []record
 }
 
 func (d *depot) Catalogue() *moteur.CatalogueCharge { return d.cat }
@@ -117,6 +121,20 @@ func (d *depot) Planetes() ([]moteur.Enregistrement, error) {
 func (d *depot) NouveauPlateau() (moteur.Enregistrement, error) {
 	d.dernier = record{"id": "pl-neuf"}
 	return d.dernier, nil
+}
+
+// ⚠️ LES CREATEURS DE `ma-planete`. Le faux rend un id tout fait : la vraie base
+// le genere, mais le sujet des essais est ce qu'on ECRIT dessus, pas l'id.
+func (d *depot) NouvellePlanete() (moteur.Enregistrement, error) {
+	r := record{"id": "pl-planete-neuve"}
+	d.planetesCreees = append(d.planetesCreees, r)
+	return r, nil
+}
+
+func (d *depot) NouveauTemplate() (moteur.Enregistrement, error) {
+	r := record{"id": fmt.Sprintf("tpl-neuf-%d", len(d.templatesCrees)+1)}
+	d.templatesCrees = append(d.templatesCrees, r)
+	return r, nil
 }
 
 type errEcritureT struct{}
