@@ -23,7 +23,10 @@ type depot struct {
 	sauves   int
 	// Ce qu'`Assurer` demande en plus : les modeles, et le dernier record cree.
 	templates []record
-	dernier   record
+	// ⚠️ LES PLANETES DU FAUX. `nil` = une base d'AVANT le patch : c'est le cas
+	// qui doit continuer de servir, et l'essai s'en sert.
+	planetes []record
+	dernier  record
 	// nil = la collection complete ; sinon exactement ces champs-la.
 	champsPlateau []string
 	// ⚠️ `Sauver` echoue quand c'est demande : une route doit dire une panne
@@ -83,24 +86,32 @@ func (d *depot) Sauver(r moteur.Enregistrement) error {
 // 13/09.
 func (d *depot) ChampsPlateau() []string {
 	if d.champsPlateau == nil {
-		return []string{"id", "ownerId", "nom", "typeOfPlateau", "typeOfPlateau2",
+		return []string{"id", "ownerId", "nom", "typeOfPlateau", "typeOfPlateau2", "planete",
 			"largeur", "hauteur", "tilesBase64", "etats", "reserve", "version", "t"}
 	}
 	return d.champsPlateau
 }
 
-// ⚠️ LES DEUX ETIQUETTES, COMME LE VRAI FILTRE POCKETBASE. Un faux qui ne
-// regarderait que le type rendrait le modele terrien pour Jupiter — et
-// l'essai qui doit attraper exactement ca serait vert pour rien.
-func (d *depot) ModeleDuType(typeVoulu, monde string) (moteur.Enregistrement, error) {
+// ⚠️ LE TYPE **ET** LA PLANETE, COMME LE VRAI FILTRE POCKETBASE. Un faux qui ne
+// regarderait que le type rendrait le modele terrien pour Jupiter — et l'essai
+// qui doit attraper exactement ca serait vert pour rien.
+func (d *depot) ModeleDuType(typeVoulu, planeteId string) (moteur.Enregistrement, error) {
 	for _, m := range d.templates {
 		if moteur.Texte(m["typeOfPlateau"]) == typeVoulu &&
-			moteur.Texte(m["typeOfPlateau2"]) == monde {
+			moteur.Texte(m["planete"]) == planeteId {
 			return m, nil
 		}
 	}
 	// ⚠️ `nil, nil` : « il n'y en a pas » n'est pas une panne de lecture.
 	return nil, nil
+}
+
+func (d *depot) Planetes() ([]moteur.Enregistrement, error) {
+	out := make([]moteur.Enregistrement, 0, len(d.planetes))
+	for _, p := range d.planetes {
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 func (d *depot) NouveauPlateau() (moteur.Enregistrement, error) {
@@ -120,7 +131,7 @@ func neuf() *depot {
 		cat: cat, t: 100000,
 		plateaux: []record{{
 			"id": "pl1", "ownerId": "u1", "nom": "Ma colonie",
-			"typeOfPlateau": "colonie", "typeOfPlateau2": "Terre",
+			"typeOfPlateau": "colonie", "typeOfPlateau2": "Terre", "planete": "pTerre",
 			"largeur": 4.0, "hauteur": 1.0, "version": 3.0,
 			"tilesBase64": moteur.OctetsVersBase64([]int{1, 2, 0, 0}),
 			"t":           float64(100000 - 3600),
@@ -154,7 +165,7 @@ func TestLesRoutesRefusentUnePlateauxSansChampT(t *testing.T) {
 		// Cette collection factice n'a pas non plus `typeOfPlateau2`, et le
 		// verdict attendu ici reste celui du champ `t` — le plus grave des deux,
 		// puisque sans lui RIEN ne produit.
-		"assurer": func(d *depot) Reponse { return Assurer(d, "u1", "ground", "Terre") },
+		"assurer": func(d *depot) Reponse { return Assurer(d, "u1", "ground", "Terre", "") },
 	} {
 		d := avecModele(neuf())
 		d.champsPlateau = sansT

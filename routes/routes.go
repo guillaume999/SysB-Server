@@ -37,6 +37,18 @@ type Depot interface {
 	PlateauxDe(uid string) ([]moteur.Enregistrement, error)
 	PlateauParId(id string) (moteur.Enregistrement, error)
 	Utilisateur(uid string) (moteur.Enregistrement, error)
+	// Toutes les planetes — il y en a une poignee, on les lit d'un coup.
+	//
+	// ⚠️ DEUX ROUTES S'EN SERVENT, ET POUR DEUX RAISONS : `assurer` y retrouve
+	// la planete demandee (par son id, ou par son NOM le temps que le client
+	// bascule), et `geste` y lit le PROPRIETAIRE de chaque planete pour savoir
+	// ce qui compte dans l'empire. Une seule methode, parce que c'est une
+	// seule lecture.
+	//
+	// ⚠️ Une liste VIDE n'est pas une panne : c'est une base ou le patch des
+	// planetes n'est pas encore passe. Les deux routes le disent et retombent
+	// sur l'ancien comportement plutot que de refuser de servir.
+	Planetes() ([]moteur.Enregistrement, error)
 	Sauver(r moteur.Enregistrement) error
 	// ChampsPlateau : les noms des champs que la collection `plateaux` retient
 	// REELLEMENT. Vide = on ne sait pas (et alors on ne juge pas).
@@ -151,10 +163,16 @@ func Etat(d Depot, uid, plateauVoulu string) Reponse {
 				"nom":            moteur.Texte(moteur.Champ(rec, "nom")),
 				"typeOfPlateau":  moteur.Texte(moteur.Champ(rec, "typeOfPlateau")),
 				"typeOfPlateau2": moteur.Texte(moteur.Champ(rec, "typeOfPlateau2")),
-				"largeur":        moteur.Entier(moteur.Champ(rec, "largeur"), 0),
-				"hauteur":        moteur.Entier(moteur.Champ(rec, "hauteur"), 0),
-				"version":        moteur.Entier(moteur.Champ(rec, "version"), 0),
-				"t":              moteur.Entier(moteur.Champ(rec, "t"), 0),
+				// ⚠️ ET LA PLANETE, depuis le 14/09 — c'est elle la vraie cle,
+				// l'etiquette au-dessus n'est plus qu'un reste de la bascule.
+				// Rendue MEME VIDE, pour la meme raison : `""` dit « ce plateau
+				// n'a pas de planete », `null` dit « ce serveur ne les connait
+				// pas encore ».
+				"planete": moteur.Texte(moteur.Champ(rec, "planete")),
+				"largeur": moteur.Entier(moteur.Champ(rec, "largeur"), 0),
+				"hauteur": moteur.Entier(moteur.Champ(rec, "hauteur"), 0),
+				"version": moteur.Entier(moteur.Champ(rec, "version"), 0),
+				"t":       moteur.Entier(moteur.Champ(rec, "t"), 0),
 			})
 		}
 		return Reponse{200, map[string]any{"ok": true, "ecrit": false, "t": t,
@@ -327,6 +345,52 @@ type DemandeGeste struct {
 //
 // ⚠️ `version` MONTE A CHAQUE GESTE, REFUS COMPRIS : le client doit savoir que
 // sa lecture est perimee, meme si le geste n'a rien fait.
+// plateauxDuTerritoire — les plateaux qui COMPTENT pour une limite de portee
+// « empire », parmi tous ceux du joueur.
+//
+// ⚠️⚠️ UN JOUEUR A DEUX TERRITOIRES, ET ILS NE SE MELANGENT PAS (14/09) :
+//
+//	· L'EMPIRE  = ses colonies sur TOUTES les planetes game ensemble ;
+//	· SA PLANETE = ce qu'il a bati chez lui.
+//
+// ⚠️ SANS PLANETES CONNUES (patch pas encore passe), on rend TOUT — exactement
+// l'ancien comportement. Une nouveaute de schema ne doit pas changer une regle
+// de jeu sur une base d'avant.
+func plateauxDuTerritoire(
+	tous []moteur.Enregistrement,
+	idCourant string,
+	proprietaireDe map[string]string,
+	planetesConnues bool,
+) []moteur.Enregistrement {
+	if !planetesConnues {
+		return tous
+	}
+	// La planete du plateau qu'on joue decide du territoire.
+	planeteCourante := ""
+	for _, r := range tous {
+		if moteur.Texte(moteur.Champ(r, "id")) == idCourant {
+			planeteCourante = moteur.Texte(moteur.Champ(r, "planete"))
+		}
+	}
+	chezLui := proprietaireDe[planeteCourante] != ""
+
+	out := make([]moteur.Enregistrement, 0, len(tous))
+	for _, r := range tous {
+		pl := moteur.Texte(moteur.Champ(r, "planete"))
+		if chezLui {
+			// Chez lui : sa planete seule, donc ses deux plateaux.
+			if pl != planeteCourante {
+				continue
+			}
+		} else if proprietaireDe[pl] != "" {
+			// Dans l'empire : tout ce qui est game, et rien de perso.
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
 func Geste(d Depot, uid string, dem DemandeGeste) Reponse {
 	if dem.Action != "poser" && dem.Action != "detruire" {
 		return erreur(400, `"action" doit valoir "poser" ou "detruire".`, nil)
@@ -375,19 +439,37 @@ func Geste(d Depot, uid string, dem DemandeGeste) Reponse {
 		}
 	}
 
-	// ⚠️ L'EMPIRE, pour une limite de portee « empire » : les AUTRES plateaux du
-	// joueur, celui-ci compris (il est deja rattrape).
+	// ⚠️ L'EMPIRE, pour une limite de portee « empire » : les autres plateaux du
+	// joueur DU MEME TERRITOIRE, celui-ci compris (il est deja rattrape).
 	//
-	// ⚠️⚠️ TOUS LES MONDES CONFONDUS, ET C'EST LA REGLE (tranchee le 13/09, en
-	// meme temps que les mondes) : l'empire d'un joueur REGROUPE ses planetes.
-	// Une limite « max 1 dans l'empire » vaut donc pour la Terre ET Jupiter
-	// ensemble, pas une fois par planete. `PlateauxDe` rend bien tous les
-	// plateaux du joueur, sans filtrer sur `typeOfPlateau2` — ne pas « reparer »
-	// ca en le restreignant au monde courant : ce serait changer une regle de
-	// jeu en croyant corriger un oubli.
+	// ⚠️⚠️ UN JOUEUR A DEUX TERRITOIRES, ET ILS NE SE MELANGENT PAS (14/09) :
+	//   · L'EMPIRE  = ses colonies sur TOUTES les planetes game ensemble ;
+	//   · SA PLANETE = ce qu'il a bati chez lui.
+	// Une limite « max 1 dans l'empire » vaut donc pour la Terre ET Jupiter d'un
+	// bloc — la regle du 13/09 tient — mais ce qu'il batit chez lui n'y compte
+	// pas, et reciproquement.
+	//
+	// ⚠️⚠️ NE PAS CONFONDRE AVEC LE FILTRE QU'ON S'INTERDIT. La note du 13/09
+	// disait : « ne pas reparer ca en le restreignant au MONDE COURANT ». Ce
+	// n'est pas ce qu'on fait ici : on ne filtre pas sur la planete ou l'on
+	// joue, on filtre sur GAME OU PAS. Les deux phrases se lisent ensemble —
+	// defaire l'une en croyant appliquer l'autre casserait une regle de jeu.
+	//
+	// ⚠️ SANS PLANETES EN BASE (patch pas encore passe), on retombe exactement
+	// sur l'ancien comportement : tous les plateaux du joueur. Une nouveaute de
+	// schema ne doit pas rendre le serveur muet sur une base d'avant.
+	proprietaireDe := map[string]string{}
+	planetesConnues := false
+	if ps, err := d.Planetes(); err == nil && len(ps) > 0 {
+		planetesConnues = true
+		for _, p := range ps {
+			proprietaireDe[moteur.Texte(moteur.Champ(p, "id"))] = moteur.Texte(moteur.Champ(p, "proprietaire"))
+		}
+	}
+
 	var empire []moteur.Vue
 	if autres, err := d.PlateauxDe(uid); err == nil {
-		for _, r := range autres {
+		for _, r := range plateauxDuTerritoire(autres, partie.Id, proprietaireDe, planetesConnues) {
 			if moteur.Texte(moteur.Champ(r, "id")) == partie.Id {
 				empire = append(empire, moteur.VueDunePartie(partie))
 				continue

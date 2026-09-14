@@ -137,24 +137,27 @@ func (d *depot) ChampsPlateau() []string {
 	return noms
 }
 
-// ModeleDuType : le modele d'un type ET d'un monde, dans `templates`.
+// ModeleDuType : le modele d'un type SUR UNE PLANETE, dans `templates`.
 //
 // ⚠️ `nil, nil` QUAND IL N'Y EN A PAS, et surtout pas une erreur : « aucun
 // modele `ground` » n'est pas une panne de lecture, c'est une saisie a faire
 // sur le site — et c'est la route qui le dit, en 404 plutot qu'en 500.
 //
-// ⚠️⚠️ LE FILTRE PORTE SUR LES DEUX ETIQUETTES DEPUIS LE 13/09. Il y a
-// maintenant plusieurs modeles `ground` en base — un par monde — et le premier
-// par date de creation serait toujours celui de la Terre : Jupiter se
-// fabriquerait avec le decor et les tuiles terriennes, sans un mot.
-// ⚠️ LA COMPARAISON EST STRICTE, LE VIDE COMPRIS : `typeOfPlateau2 = ""` ne
-// ramene que les modeles non etiquetes. Depuis le patch `etiquette-terre` il
-// n'y en a plus aucun — c'est voulu, la route repond alors 404 en nommant le
-// monde plutot que de servir n'importe lequel.
-func (d *depot) ModeleDuType(typeVoulu, monde string) (moteur.Enregistrement, error) {
+// ⚠️⚠️ LE FILTRE PORTE SUR LA RELATION `planete` DEPUIS LE 14/09, plus sur le
+// texte `typeOfPlateau2`. Ce qui ne change PAS : on prend LE PLUS ANCIEN
+// (`created`), donc un brouillon cohabite toujours avec le modele en service.
+// Ce qui change : c'est cadre A UNE PLANETE. Sans ce cadre, deux modeles
+// `ground` de deux joueurs se departageaient a la date de creation, et le
+// joueur debarquait chez quelqu'un d'autre — sans un mot.
+//
+// ⚠️ LA COMPARAISON RESTE STRICTE, LE VIDE COMPRIS : `planete = ""` ne ramene
+// que les modeles non rattaches. Depuis `patch-relation-planete-2026-09-14.js`
+// il n'y en a plus aucun — c'est voulu, la route repond alors 404 en nommant la
+// planete plutot que de servir n'importe lequel.
+func (d *depot) ModeleDuType(typeVoulu, planeteId string) (moteur.Enregistrement, error) {
 	recs, err := d.app.FindRecordsByFilter("templates",
-		"typeOfPlateau = {:type} && typeOfPlateau2 = {:monde}",
-		"created", 1, 0, map[string]any{"type": typeVoulu, "monde": monde})
+		"typeOfPlateau = {:type} && planete = {:planete}",
+		"created", 1, 0, map[string]any{"type": typeVoulu, "planete": planeteId})
 	if err != nil {
 		return nil, err
 	}
@@ -162,6 +165,30 @@ func (d *depot) ModeleDuType(typeVoulu, monde string) (moteur.Enregistrement, er
 		return nil, nil
 	}
 	return versLeMoteur(recs[0]), nil
+}
+
+// Planetes : toutes les planetes, d'un coup.
+//
+// ⚠️ IL Y EN A UNE POIGNEE — une par monde du jeu, une par joueur. Les lire
+// entierement coute moins qu'une requete par plateau, et `geste` en a besoin
+// pour CHAQUE plateau du joueur.
+//
+// ⚠️ UNE LISTE VIDE N'EST PAS UNE PANNE : c'est une base ou
+// `patch-planetes-2026-09-14.js` n'est pas passe. Les routes le disent et
+// retombent sur l'ancien comportement — elles ne refusent pas de servir.
+// ⚠️ Et une collection ABSENTE rend une erreur, pas une liste vide : on la
+// ravale ici, pour la meme raison. Un serveur deploye avant le patch doit
+// continuer de jouer.
+func (d *depot) Planetes() ([]moteur.Enregistrement, error) {
+	recs, err := d.app.FindRecordsByFilter("planetes", "id != ''", "created", 500, 0, nil)
+	if err != nil {
+		return nil, nil
+	}
+	out := make([]moteur.Enregistrement, 0, len(recs))
+	for _, r := range recs {
+		out = append(out, versLeMoteur(r))
+	}
+	return out, nil
 }
 
 // NouveauPlateau : un record `plateaux` neuf, PAS ENCORE ECRIT. C'est `Sauver`
@@ -333,11 +360,17 @@ func Brancher(app core.App) {
 			var corps struct {
 				Joueur string `json:"joueur"`
 				Type   string `json:"type"`
-				// ⚠️ `monde` = `typeOfPlateau2` : sur QUEL monde on fabrique.
+				// ⚠️ `monde` = LE NOM de la planete (« Terre », « Jupiter »).
+				// C'est LE PONT, le temps qu'Unity envoie un identifiant : il
+				// part avec la mise a jour du client, le jour meme.
 				// Absent = chaine vide, et la comparaison reste stricte : un
 				// client qui l'oublie se fait refuser en 404, il ne se fait pas
 				// servir la Terre par defaut.
 				Monde string `json:"monde"`
+				// ⚠️ `planete` = SON IDENTIFIANT. C'est la bonne cle : elle ne
+				// depend d'aucun libellé, donc renommer une planete ne casse
+				// aucune partie. Quand les deux sont la, c'est elle qui gagne.
+				Planete string `json:"planete"`
 			}
 			if err := e.BindBody(&corps); err != nil {
 				return refuser(e, 400, "corps illisible : "+err.Error())
@@ -354,7 +387,7 @@ func Brancher(app core.App) {
 			// controle « ce plateau existe-t-il deja » infranchissable par deux
 			// ouvertures simultanees du jeu.
 			err := app.RunInTransaction(func(tx core.App) error {
-				rep = routes.Assurer(&depot{app: tx, cat: cat, t: t}, uid, corps.Type, corps.Monde)
+				rep = routes.Assurer(&depot{app: tx, cat: cat, t: t}, uid, corps.Type, corps.Monde, corps.Planete)
 				if rep.Code >= 500 {
 					return errAnnuler
 				}

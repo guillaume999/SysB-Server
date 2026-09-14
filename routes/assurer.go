@@ -73,14 +73,20 @@ import (
 // est une interface que les faux des essais copient sans la comprendre.
 type DepotCreateur interface {
 	Depot
-	// Le modele d'un type ET d'un monde, dans `templates`. `nil, nil` = il n'y
-	// en a pas — ce n'est pas une panne, c'est une saisie a faire sur le site.
+	// Le modele d'un type SUR UNE PLANETE, dans `templates`. `nil, nil` = il
+	// n'y en a pas — ce n'est pas une panne, c'est une saisie a faire sur le
+	// site.
 	//
-	// ⚠️ LES DEUX ETIQUETTES, PAS UNE : un modele `ground` etiquete « Terre » ne
-	// doit jamais servir a fabriquer la colonie de Jupiter. Le joueur y
-	// debarquerait avec le decor et les tuiles de la Terre, sans qu'aucun
-	// message n'existe pour l'expliquer.
-	ModeleDuType(typeVoulu, monde string) (moteur.Enregistrement, error)
+	// ⚠️ LA PLANETE, PAS L'ETIQUETTE (14/09). Le filtre portait sur le texte
+	// `typeOfPlateau2` ; il porte maintenant sur la relation `planete`. Ce qui
+	// ne change PAS : on prend le PLUS ANCIEN du couple, donc un brouillon
+	// cohabite toujours avec le modele en service — c'est simplement cadre a
+	// une planete au lieu d'etre global, et c'est ca qui ferme le piege.
+	//
+	// ⚠️ UN MODELE NE SE CHERCHE PLUS ENTRE PLANETES : sans ce cadre, deux
+	// modeles `ground` de deux joueurs se departageaient a la date de creation,
+	// et le joueur debarquait chez quelqu'un d'autre sans un mot.
+	ModeleDuType(typeVoulu, planeteId string) (moteur.Enregistrement, error)
 	// Un record `plateaux` NEUF, pas encore ecrit. C'est `Sauver` qui l'ecrit.
 	NouveauPlateau() (moteur.Enregistrement, error)
 }
@@ -122,9 +128,14 @@ func resume(rec moteur.Enregistrement) map[string]any {
 		// meme lecon que `refusees` le 13/09 : `[]` et `null` ne disent pas la
 		// meme chose, et un client qui les confond fabrique des doublons.
 		"typeOfPlateau2": moteur.Texte(moteur.Champ(rec, "typeOfPlateau2")),
-		"largeur":        moteur.Entier(moteur.Champ(rec, "largeur"), 0),
-		"hauteur":        moteur.Entier(moteur.Champ(rec, "hauteur"), 0),
-		"version":        moteur.Entier(moteur.Champ(rec, "version"), 0),
+		// ⚠️ RENDU MEME VIDE, pour la meme raison que l'etiquette juste au-dessus :
+		// une chaine vide dit « ce plateau n'a pas encore de planete », `null`
+		// dit « ce serveur ne connait pas les planetes ». Un client qui les
+		// confond refabrique un plateau a chaque ouverture.
+		"planete": moteur.Texte(moteur.Champ(rec, "planete")),
+		"largeur": moteur.Entier(moteur.Champ(rec, "largeur"), 0),
+		"hauteur": moteur.Entier(moteur.Champ(rec, "hauteur"), 0),
+		"version": moteur.Entier(moteur.Champ(rec, "version"), 0),
 	}
 }
 
@@ -163,9 +174,60 @@ func gardeChampMonde(d Depot, monde string) *Reponse {
 	return &r
 }
 
-// Assurer : le plateau de ce type SUR CE MONDE existe, ou il est fabrique
-// depuis le modele qui porte les deux memes etiquettes.
-func Assurer(d DepotCreateur, uid, typeVoulu, monde string) Reponse {
+// gardeChampPlanete — ⚠️ LE CHAMP `planete` SUR `plateaux`, RELEVE A CHAQUE
+// APPEL. Meme piege que `t` et que `typeOfPlateau2` avant lui : `Record.Set`
+// sur un champ absent de la collection ne se plaint pas, garde la valeur en
+// memoire, et la perd au SAVE. Sans ce controle, le plateau fabrique ici serait
+// ecrit SANS planete, la lecture suivante ne le retrouverait pas, et on en
+// refabriquerait un a chaque ouverture — en silence, sous des 200.
+//
+// ⚠️ Une collection qui ne connait AUCUN champ (`ChampsPlateau` vide) ne se
+// juge pas : on ne sait pas, donc on ne refuse pas.
+func gardeChampPlanete(d Depot) *Reponse {
+	champs := d.ChampsPlateau()
+	if len(champs) == 0 {
+		return nil
+	}
+	for _, n := range champs {
+		if n == "planete" {
+			return nil
+		}
+	}
+	r := erreur(500, "SCHEMA : la collection `plateaux` n'a pas de champ `planete`. "+
+		"C'est lui qui dit sur QUELLE planete se joue un plateau : sans lui, celui "+
+		"fabrique ici serait ecrit sans planete et refabrique a chaque ouverture. "+
+		"Lance `patch-relation-planete-2026-09-14.js`.", map[string]any{"cree": false})
+	return &r
+}
+
+// planeteDemandee — la planete sur laquelle on veut jouer.
+//
+// ⚠️⚠️ DEUX FACONS DE LA DESIGNER, ET LA SECONDE A UNE DATE DE PEREMPTION :
+//
+//	· `planete` — son id. C'est la bonne, celle que le client enverra ;
+//	· `monde`   — son NOM (« Terre », « Jupiter »), le temps que Unity bascule.
+//
+// Le pont existe pour qu'un client d'avant les planetes continue de jouer
+// pendant la bascule. ⚠️ IL PART AVEC LA MISE A JOUR D'UNITY, le jour meme :
+// un repli qui survit a sa raison d'etre devient un second chemin, donc un
+// second verdict.
+func planeteDemandee(planetes []moteur.Enregistrement, planeteId, monde string) moteur.Enregistrement {
+	for _, p := range planetes {
+		if planeteId != "" && moteur.Texte(moteur.Champ(p, "id")) == planeteId {
+			return p
+		}
+		// ⚠️ Comparaison STRICTE du nom, la casse comprise — comme partout
+		// depuis le 13/09. « jupiter » n'est pas « Jupiter ».
+		if planeteId == "" && monde != "" && moteur.Texte(moteur.Champ(p, "nom")) == monde {
+			return p
+		}
+	}
+	return nil
+}
+
+// Assurer : le plateau de ce type SUR CETTE PLANETE existe, ou il est fabrique
+// depuis le modele qui lui est rattache.
+func Assurer(d DepotCreateur, uid, typeVoulu, monde, planeteId string) Reponse {
 	if typeVoulu == "" {
 		return erreur(400, `"type" attendu ("ground", "space"…) : `+
 			`on fabrique UN type, jamais « tous ».`, map[string]any{"cree": false})
@@ -188,7 +250,39 @@ func Assurer(d DepotCreateur, uid, typeVoulu, monde string) Reponse {
 	if r := gardeChampMonde(d, monde); r != nil {
 		return *r
 	}
+	if r := gardeChampPlanete(d); r != nil {
+		return *r
+	}
 	t := d.Maintenant()
+
+	// ─── Quelle planete ? ──────────────────────────────────────────────────
+	planetes, err := d.Planetes()
+	if err != nil {
+		return erreur(500, "lecture des planetes : "+err.Error(), map[string]any{"cree": false})
+	}
+	if len(planetes) == 0 {
+		// ⚠️ PAS UNE PANNE : une base ou le patch n'est pas passe. Le dire
+		// plutot que de repondre 404 « aucun modele », qui enverrait chercher
+		// une saisie manquante la ou il manque une table.
+		return erreur(404, "Aucune planete en base. Lance `patch-planetes-2026-09-14.js` : "+
+			"c'est lui qui cree « Game », « Terre » et les autres.",
+			map[string]any{"cree": false})
+	}
+	planete := planeteDemandee(planetes, planeteId, monde)
+	if planete == nil {
+		quoi := "l'identifiant « " + planeteId + " »"
+		if planeteId == "" {
+			quoi = "le nom « " + monde + " »"
+		}
+		if planeteId == "" && monde == "" {
+			return erreur(400, `"planete" (son identifiant) attendu : on fabrique un plateau SUR `+
+				`une planete, jamais « quelque part ».`, map[string]any{"cree": false})
+		}
+		return erreur(404, "Aucune planete ne porte "+quoi+". Verifie l'onglet Planetes du site.",
+			map[string]any{"cree": false})
+	}
+	planeteId = moteur.Texte(moteur.Champ(planete, "id"))
+	nomPlanete := moteur.Texte(moteur.Champ(planete, "nom"))
 
 	records, err := d.PlateauxDe(uid)
 	if err != nil {
@@ -198,18 +292,18 @@ func Assurer(d DepotCreateur, uid, typeVoulu, monde string) Reponse {
 		if moteur.Texte(moteur.Champ(rec, "typeOfPlateau")) != typeVoulu {
 			continue
 		}
-		// ⚠️ ET LE MONDE AUSSI. Sans cette ligne, le joueur qui a deja sa
-		// colonie terrienne se verrait rendre CELLE-LA en cliquant sur Jupiter,
-		// avec un 200 et un « ce joueur a deja un plateau de ce type ».
-		if moteur.Texte(moteur.Champ(rec, "typeOfPlateau2")) != monde {
+		// ⚠️ ET LA PLANETE AUSSI. Sans cette ligne, le joueur qui a deja sa
+		// colonie terrienne se verrait rendre CELLE-LA en cliquant sur une autre
+		// planete, avec un 200 et un « ce joueur a deja un plateau de ce type ».
+		if moteur.Texte(moteur.Champ(rec, "planete")) != planeteId {
 			continue
 		}
 		return Reponse{200, map[string]any{"ok": true, "ecrit": false, "cree": false,
-			"t": t, "joueur": uid, "verdict": "Ce joueur a deja un plateau de ce type sur ce monde.",
+			"t": t, "joueur": uid, "verdict": "Ce joueur a deja un plateau de ce type sur cette planete.",
 			"plateau": resume(rec), "lecture": cat.Lecture, "alertes": cat.Alertes, "refusees": cat.RefuseesTriees()}}
 	}
 
-	modele, err := d.ModeleDuType(typeVoulu, monde)
+	modele, err := d.ModeleDuType(typeVoulu, planeteId)
 	if err != nil {
 		return erreur(500, "lecture du modele : "+err.Error(), map[string]any{"cree": false})
 	}
@@ -220,19 +314,23 @@ func Assurer(d DepotCreateur, uid, typeVoulu, monde string) Reponse {
 		// ⚠️ LE VERDICT NOMME LES DEUX ETIQUETTES : « aucun modele ground »
 		// enverrait chercher un modele qui existe — il existe, mais sur un autre
 		// monde, et c'est CA qu'il faut lire.
-		return erreur(404, fmt.Sprintf("Aucun modele « %s » etiquete « %s » dans la collection "+
-			"`templates` (le monde compte autant que le type). Cree-le depuis le site "+
-			"d'administration, ou donne son etiquette « Type de plateau 2 » a un modele "+
-			"existant, avant de lancer une partie.", typeVoulu, monde),
-			map[string]any{"cree": false, "monde": monde})
+		// ⚠️ ET C'EST AUSSI LA REPONSE POUR UNE PLANETE QUI N'EN EST PAS UNE :
+		// le porte-contenu commun (« Game ») n'a AUCUN modele, expres. Le
+		// verdict le dit, sinon on chercherait une saisie qu'il ne faut surtout
+		// pas faire.
+		return erreur(404, fmt.Sprintf("Aucun modele « %s » rattache a la planete « %s » dans "+
+			"la collection `templates` (la planete compte autant que le type). Cree-le depuis "+
+			"le site, onglet Planetes — ou, s'il s'agit du porte-contenu commun, c'est normal : "+
+			"il ne se joue pas.", typeVoulu, nomPlanete),
+			map[string]any{"cree": false, "planete": planeteId, "monde": nomPlanete})
 	}
 
 	largeur := moteur.Entier(moteur.Champ(modele, "largeur"), 0)
 	hauteur := moteur.Entier(moteur.Champ(modele, "hauteur"), 0)
 	if largeur <= 0 || hauteur <= 0 {
 		return erreur(422, fmt.Sprintf("Le modele « %s » de « %s » n'a pas de dimensions "+
-			"exploitables (%d x %d).", typeVoulu, monde, largeur, hauteur),
-			map[string]any{"cree": false, "monde": monde})
+			"exploitables (%d x %d).", typeVoulu, nomPlanete, largeur, hauteur),
+			map[string]any{"cree": false, "planete": planeteId, "monde": nomPlanete})
 	}
 	tilesBase64 := moteur.Texte(moteur.Champ(modele, "tilesBase64"))
 	// ⚠️ LA GRILLE SE VERIFIE AVANT, PAS APRES. Le JS l'eprouvait juste avant
@@ -240,8 +338,8 @@ func Assurer(d DepotCreateur, uid, typeVoulu, monde string) Reponse {
 	// ou c'est un modele mal saisi. Ici c'est un refus qui NOMME le modele.
 	if n := len(moteur.Base64VersOctets(tilesBase64)); n != largeur*hauteur {
 		return erreur(422, fmt.Sprintf("Le modele « %s » de « %s » a une grille de %d octets "+
-			"pour %d x %d = %d cases.", typeVoulu, monde, n, largeur, hauteur, largeur*hauteur),
-			map[string]any{"cree": false, "monde": monde})
+			"pour %d x %d = %d cases.", typeVoulu, nomPlanete, n, largeur, hauteur, largeur*hauteur),
+			map[string]any{"cree": false, "planete": planeteId, "monde": nomPlanete})
 	}
 
 	// ─── Les etats du modele, recopies ─────────────────────────────────────
@@ -285,14 +383,21 @@ func Assurer(d DepotCreateur, uid, typeVoulu, monde string) Reponse {
 	if err != nil || rec == nil {
 		return erreur(500, "creation du record impossible", map[string]any{"cree": false})
 	}
-	nom := NomParDefaut(typeVoulu, monde)
+	nom := NomParDefaut(typeVoulu, nomPlanete)
 	rec.Set("ownerId", uid)
 	rec.Set("nom", nom)
 	rec.Set("typeOfPlateau", typeVoulu)
 	// ⚠️ LE MONDE EST POSE ICI, ET C'EST LA SEULE FOIS. Il ne bouge plus ensuite :
 	// ni la passe, ni le geste, ni rien n'a de raison de changer le monde d'un
 	// plateau. `gardeChampMonde` a deja verifie que la collection le retient.
-	rec.Set("typeOfPlateau2", monde)
+	rec.Set("planete", planeteId)
+	// ⚠️⚠️ L'ETIQUETTE TEXTE EST ECRITE EN PLUS, ET C'EST TEMPORAIRE. Le site et
+	// Unity lisent encore `typeOfPlateau2` : un plateau neuf sans etiquette leur
+	// serait invisible pendant la bascule. On ecrit donc LE NOM de la planete,
+	// qui est exactement ce que l'etiquette valait.
+	// ⚠️ CETTE LIGNE PART AVEC LE PATCH DE MENAGE, avec la colonne. Deux verites
+	// pour une meme chose ne se gardent que le temps d'une bascule.
+	rec.Set("typeOfPlateau2", nomPlanete)
 	rec.Set("largeur", largeur)
 	rec.Set("hauteur", hauteur)
 	rec.Set("tilesBase64", tilesBase64)
