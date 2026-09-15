@@ -336,9 +336,12 @@ func Assurer(d DepotCreateur, uid, typeVoulu, monde, planeteId string) Reponse {
 	// ⚠️ LA GRILLE SE VERIFIE AVANT, PAS APRES. Le JS l'eprouvait juste avant
 	// d'ecrire, en levant : une grille fausse devenait un 500 « EXCEPTION » la
 	// ou c'est un modele mal saisi. Ici c'est un refus qui NOMME le modele.
-	if n := len(moteur.Base64VersOctets(tilesBase64)); n != largeur*hauteur {
+	// ⚠️ UN OU DEUX OCTETS PAR CASE (15/09) : les deux longueurs sont justes.
+	if _, ok := moteur.LireGrille(tilesBase64, largeur, hauteur); !ok {
+		n := len(moteur.Base64VersOctets(tilesBase64))
 		return erreur(422, fmt.Sprintf("Le modele « %s » de « %s » a une grille de %d octets "+
-			"pour %d x %d = %d cases.", typeVoulu, nomPlanete, n, largeur, hauteur, largeur*hauteur),
+			"pour %d x %d = %d cases (attendu %d ou %d).", typeVoulu, nomPlanete, n, largeur, hauteur,
+			largeur*hauteur, largeur*hauteur, 2*largeur*hauteur),
 			map[string]any{"cree": false, "planete": planeteId, "monde": nomPlanete})
 	}
 
@@ -453,8 +456,10 @@ func Assurer(d DepotCreateur, uid, typeVoulu, monde, planeteId string) Reponse {
 
 	return Reponse{200, map[string]any{"ok": true, "ecrit": true, "cree": true,
 		"t": t, "joueur": uid, "monde": monde,
+		// ⚠️ LE NOM DE LA PLANETE, pas `monde` : un client qui envoie l'id
+		// (la bonne cle) laisse `monde` vide, et le verdict disait « de «  » ».
 		"verdict": fmt.Sprintf("Plateau « %s » fabrique depuis le modele « %s » de « %s ».",
-			nom, typeVoulu, monde),
+			nom, typeVoulu, nomPlanete),
 		// ⚠️ `plateau` EST LU PAR UNITY (`SysBApi.Assurer` -> `Resume`) : id,
 		// nom, typeOfPlateau, typeOfPlateau2, largeur, hauteur, version. Ne pas
 		// le renommer.

@@ -31,7 +31,12 @@ import (
 // dans la meme que `PlateauParId`. C'est l'adaptateur qui le garantit ; ici on
 // suppose seulement que les deux parlent de la meme chose.
 type Depot interface {
+	// Catalogue : TOUT le catalogue, toutes planetes confondues. Il ne sert
+	// qu'au garde-fou « base illisible » et aux reponses sans plateau.
 	Catalogue() *moteur.CatalogueCharge
+	// CatalogueDe : ce qui JOUE sur cette planete (15/09) — voir
+	// `catalogue_planete.go`. C'est lui qui juge un plateau.
+	CatalogueDe(planeteId string) *moteur.CatalogueCharge
 	Maintenant() int
 	// Les plateaux d'un joueur, tries par `typeOfPlateau` — l'ordre du JS.
 	PlateauxDe(uid string) ([]moteur.Enregistrement, error)
@@ -113,6 +118,11 @@ func gardeSchema(d Depot) *Reponse {
 	return &r
 }
 
+// planeteDe : la planete d'un plateau, vide pour un plateau d'avant le 14/09.
+func planeteDe(rec moteur.Enregistrement) string {
+	return moteur.Texte(moteur.Champ(rec, "planete"))
+}
+
 func technosDuJoueur(d Depot, uid string) map[string]int {
 	if u, err := d.Utilisateur(uid); err == nil && u != nil {
 		return moteur.TechnosDe(u)
@@ -184,6 +194,8 @@ func Etat(d Depot, uid, plateauVoulu string) Reponse {
 		if moteur.Texte(moteur.Champ(rec, "id")) != plateauVoulu {
 			continue
 		}
+		// ⚠️ LE CATALOGUE DE SA PLANETE (15/09), pas celui de tout le jeu.
+		cat := d.CatalogueDe(planeteDe(rec))
 		partie := moteur.ChargerPartie(rec, cat, t)
 		// ⚠️ COMPTE LES CASES AVANT LE RATTRAPAGE : c'est « combien de cases
 		// le moteur a fait avancer », pas « combien il en reste ».
@@ -263,6 +275,8 @@ func Passe(d Depot, uid, plateauVoulu string, budget int) Reponse {
 	toutFini := true
 
 	for _, rec := range records {
+		// ⚠️ CHAQUE PLATEAU AVEC LE CATALOGUE DE SA PLANETE (15/09).
+		cat := d.CatalogueDe(planeteDe(rec))
 		partie := moteur.ChargerPartie(rec, cat, t)
 
 		// ⚠️ UN PLATEAU HORODATE DANS LE FUTUR NE SE RATTRAPE PAS : ou l'horloge
@@ -398,8 +412,8 @@ func Geste(d Depot, uid string, dem DemandeGeste) Reponse {
 	if dem.X < 0 || dem.Z < 0 {
 		return erreur(400, `"x" et "z" attendus.`, nil)
 	}
-	if dem.Action == "poser" && !(dem.Tuile > 0 && dem.Tuile < 256) {
-		return erreur(400, `"tuile" attendu, entre 1 et 255.`, nil)
+	if dem.Action == "poser" && !moteur.TileIdValide(dem.Tuile) {
+		return erreur(400, fmt.Sprintf(`"tuile" attendu, entre 1 et %d.`, moteur.TileIdMax), nil)
 	}
 	if dem.Plateau == "" {
 		return erreur(400, `"plateau" attendu : un geste vise UN plateau, jamais « le premier ».`, nil)
@@ -423,6 +437,10 @@ func Geste(d Depot, uid string, dem DemandeGeste) Reponse {
 	}
 	versionCourante := moteur.Entier(moteur.Champ(rec, "version"), 0)
 
+	// ⚠️ LE CATALOGUE DE LA PLANETE DU PLATEAU (15/09). C'est ce qui refuse une
+	// tuile d'une autre planete : elle n'y est pas, le geste repond « pas dans
+	// le catalogue ». Le magasin qui la cache n'est qu'un confort.
+	cat = d.CatalogueDe(planeteDe(rec))
 	partie := moteur.ChargerPartie(rec, cat, t)
 	octetsAvant := append([]int(nil), partie.Tiles...)
 	casesAvant := len(partie.Plateau.Batiments)
@@ -474,7 +492,7 @@ func Geste(d Depot, uid string, dem DemandeGeste) Reponse {
 				empire = append(empire, moteur.VueDunePartie(partie))
 				continue
 			}
-			autre := moteur.ChargerPartie(r, cat, t)
+			autre := moteur.ChargerPartie(r, d.CatalogueDe(planeteDe(r)), t)
 			autre.Avancer(t, 0)
 			empire = append(empire, moteur.VueDunePartie(autre))
 		}
@@ -539,7 +557,7 @@ func Geste(d Depot, uid string, dem DemandeGeste) Reponse {
 	versionApres := versionCourante + 1
 	rec.Set("version", versionApres)
 	if ok {
-		rec.Set("tilesBase64", moteur.OctetsVersBase64(partie.Tiles))
+		rec.Set("tilesBase64", moteur.EcrireGrille(partie.Tiles))
 	}
 	if err := d.Sauver(rec); err != nil {
 		return erreur(500, "ecriture : "+err.Error(), nil)
@@ -568,7 +586,7 @@ func Geste(d Depot, uid string, dem DemandeGeste) Reponse {
 	// lue sur le record : on remet celle qui vient d'etre ecrite.
 	bloc.Plateau.Version = versionApres
 	if ok {
-		bloc.Plateau.TilesBase64 = moteur.OctetsVersBase64(partie.Tiles)
+		bloc.Plateau.TilesBase64 = moteur.EcrireGrille(partie.Tiles)
 	}
 
 	g := map[string]any{"accepte": ok, "refus": refus, "perime": perime,

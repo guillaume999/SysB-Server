@@ -6,8 +6,8 @@
 //  DEUX ENCODAGES, UNE SEULE COUCHE DE JEU. Une case porte UNE tuile, point.
 //  Mais deux encodages cohabitent parce qu'ils ne portent pas la meme chose :
 //
-//   · `tilesBase64` — un octet par case, index `z * largeur + x`. Il dit CE
-//     QU'IL Y A. 10 000 cases tiennent en 13 Ko.
+//   · `tilesBase64` — un ou deux octets par case (voir `LireGrille`), index
+//     `z * largeur + x`. Il dit CE QU'IL Y A. 10 000 cases tiennent en 13 Ko.
 //   · `etats` — un tableau json, une entree pour les SEULES cases ayant
 //     quelque chose a retenir. Il dit OU EN EST chaque batiment.
 //
@@ -69,8 +69,8 @@ func Base64VersOctets(texte string) []int {
 
 // OctetsVersBase64 : le retour, et pour la meme raison.
 //
-// ⚠️ SEUL LE GESTE S'EN SERT. La resolution ne touche JAMAIS au terrain : si un
-// jour cette fonction est appelee depuis une passe, c'est un bug.
+// ⚠️ ELLE ECRIT DES OCTETS, PAS UNE GRILLE : pour une grille, c'est
+// `EcrireGrille`, qui choisit le format.
 func OctetsVersBase64(octets []int) string {
 	var sb strings.Builder
 	for i := 0; i < len(octets); i += 3 {
@@ -96,6 +96,102 @@ func OctetsVersBase64(octets []int) string {
 		}
 	}
 	return sb.String()
+}
+
+// ─── La grille : UN ou DEUX octets par case (15/09) ─────────────────────────
+//
+// Jusqu'au 15/09, une case tenait sur UN octet : 255 tuiles au plus pour tout
+// le jeu, et 255 etait deja pris. Decision de Guillaume : passer a DEUX octets
+// (65 535 tuiles), pour que les joueurs puissent creer les leurs.
+//
+// ⚠️⚠️ LE FORMAT SE LIT A LA LONGUEUR, IL N'EST ECRIT NULLE PART.
+//
+//	largeur x hauteur octets      → 1 octet par case (le format d'avant)
+//	2 x largeur x hauteur octets  → 2 octets par case, POIDS FORT D'ABORD
+//
+// Les deux longueurs ne peuvent pas se confondre (une grille a au moins une
+// case). C'est ce qui evite de VIDER les plateaux et de REDESSINER les modeles,
+// comme le prevoyait la note du 13/09 : un plateau d'avant se relit tel quel.
+//
+// ⚠️ ON ECRIT EN 1 OCTET TANT QUE TOUS LES IDS TIENNENT (<= 255), en 2 sinon.
+// Ce n'est pas un reste : c'est ce qui laisse un client d'avant lire une grille
+// qui ne porte que des tuiles d'avant, et ca divise la taille par deux. Le jour
+// ou une case porte 256 ou plus, la grille passe en 2 octets — et SEUL un client
+// a jour la lit. Les trois lecteurs (serveur, site `lib/plateaux.ts`, Unity
+// `PlateauData.cs`) suivent exactement cette regle.
+
+// TileIdMax : le plus grand id qu'une case peut porter.
+const TileIdMax = 65535
+
+// TileIdValide : un id de tuile qu'une case peut porter (0 = case vide, exclu).
+func TileIdValide(n int) bool { return n > 0 && n <= TileIdMax }
+
+// FormatGrille : combien d'octets par case, d'apres la longueur. 0 = aucune des
+// deux longueurs attendues (grille illisible ou dimensions fausses).
+func FormatGrille(nOctets, largeur, hauteur int) int {
+	cases := largeur * hauteur
+	switch {
+	case cases <= 0:
+		return 0
+	case nOctets == cases:
+		return 1
+	case nOctets == 2*cases:
+		return 2
+	}
+	return 0
+}
+
+// LireGrille : le contenu de chaque case.
+//
+// ⚠️ TOLERANTE, comme tout ce fichier : une longueur qui ne correspond a aucun
+// format rend les octets TELS QUELS (le comportement d'avant le 15/09) et
+// `ok = false`. `ChargerPartie` n'en fait pas une panne ; `assurer` et le crochet
+// des modeles, eux, refusent sur `ok`.
+func LireGrille(texte string, largeur, hauteur int) (cases []int, ok bool) {
+	octets := Base64VersOctets(texte)
+	switch FormatGrille(len(octets), largeur, hauteur) {
+	case 1:
+		return octets, true
+	case 2:
+		cases = make([]int, len(octets)/2)
+		for i := range cases {
+			cases[i] = octets[2*i]<<8 | octets[2*i+1]
+		}
+		return cases, true
+	}
+	return octets, false
+}
+
+// EcrireGrille : le retour. 1 octet par case si tous les ids tiennent, 2 sinon.
+//
+// ⚠️ Un id hors 0..65535 est une faute de l'appelant : il est ecrit 0 (case
+// vide) plutot que tronque — un id tronque designerait UNE AUTRE tuile.
+func EcrireGrille(cases []int) string {
+	deux := false
+	for _, c := range cases {
+		if c > 255 {
+			deux = true
+			break
+		}
+	}
+	if !deux {
+		octets := make([]int, len(cases))
+		for i, c := range cases {
+			if c >= 0 && c <= 255 {
+				octets[i] = c
+			}
+		}
+		return OctetsVersBase64(octets)
+	}
+	octets := make([]int, 2*len(cases))
+	for i, c := range cases {
+		if c < 0 || c > TileIdMax {
+			c = 0
+		}
+		octets[2*i] = c >> 8
+		octets[2*i+1] = c & 0xFF
+	}
+	return OctetsVersBase64(octets)
 }
 
 // IndexCase : -1 si la case est hors plateau.
@@ -138,7 +234,7 @@ func ChargerPartie(r Enregistrement, cat Catalogue, maintenant int) *Partie {
 	g := cat.Genres()
 	largeur := Entier(Champ(r, "largeur"), 0)
 	hauteur := Entier(Champ(r, "hauteur"), 0)
-	tiles := Base64VersOctets(Texte(Champ(r, "tilesBase64")))
+	tiles, _ := LireGrille(Texte(Champ(r, "tilesBase64")), largeur, hauteur)
 
 	t := Entier(Champ(r, "t"), 0)
 	if t == 0 {

@@ -197,7 +197,7 @@ func AssurerPlaneteDe(d DepotPlaneteJoueur, uid string) Reponse {
 	}
 
 	// ⚠️ UNE GRILLE DE ZEROS EST UNE GRILLE VALIDE : `0` est la case vide.
-	vide := moteur.OctetsVersBase64(make([]int, LargeurDeDepart*HauteurDeDepart))
+	vide := moteur.EcrireGrille(make([]int, LargeurDeDepart*HauteurDeDepart))
 	crees := []any{}
 	for _, t := range TypesDeDepart {
 		if aDeja[t] {

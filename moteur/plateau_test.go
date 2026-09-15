@@ -147,3 +147,125 @@ func TestUnPlateauVideEcritUneListeVide(t *testing.T) {
 		t.Errorf("ce qui part en base : %s (attendu [])", b)
 	}
 }
+
+// ─── La grille sur 1 ou 2 octets (15/09) ────────────────────────────────────
+
+// Une grille d'avant (1 octet par case) se relit TELLE QUELLE : c'est ce qui
+// evite de vider les plateaux des joueurs.
+func TestGrilleUnOctetSeRelitTelleQuelle(t *testing.T) {
+	src := []int{0, 1, 255, 7, 0, 12}
+	cases, ok := LireGrille(OctetsVersBase64(src), 3, 2)
+	if !ok || len(cases) != 6 {
+		t.Fatalf("attendu 6 cases lisibles, recu %v (ok=%v)", cases, ok)
+	}
+	for i := range src {
+		if cases[i] != src[i] {
+			t.Fatalf("case %d : %d != %d", i, cases[i], src[i])
+		}
+	}
+}
+
+// Deux octets, POIDS FORT D'ABORD — le format que le site et Unity suivent.
+func TestGrilleDeuxOctetsPoidsFortDabord(t *testing.T) {
+	// 300 = 0x012C, 65535 = 0xFFFF, 1 = 0x0001
+	texte := OctetsVersBase64([]int{0x01, 0x2C, 0xFF, 0xFF, 0x00, 0x01, 0, 0})
+	cases, ok := LireGrille(texte, 2, 2)
+	if !ok {
+		t.Fatal("grille de 2 octets refusee")
+	}
+	want := []int{300, 65535, 1, 0}
+	for i := range want {
+		if cases[i] != want[i] {
+			t.Fatalf("case %d : %d != %d", i, cases[i], want[i])
+		}
+	}
+}
+
+// On ecrit en 1 octet tant que c'est possible, en 2 des qu'un id depasse 255,
+// et ce qu'on ecrit se relit.
+func TestEcrireGrilleChoisitLeFormatEtFaitLeTour(t *testing.T) {
+	petit := []int{0, 1, 255, 3}
+	if n := len(Base64VersOctets(EcrireGrille(petit))); n != 4 {
+		t.Errorf("ids <= 255 : attendu 4 octets, recu %d", n)
+	}
+	r := rand.New(rand.NewSource(20260915))
+	for essai := 0; essai < 200; essai++ {
+		l, h := 1+r.Intn(20), 1+r.Intn(20)
+		src := make([]int, l*h)
+		for i := range src {
+			src[i] = r.Intn(TileIdMax + 1)
+		}
+		src[r.Intn(len(src))] = 256 + r.Intn(TileIdMax-256)
+		texte := EcrireGrille(src)
+		if n := len(Base64VersOctets(texte)); n != 2*l*h {
+			t.Fatalf("id > 255 : attendu %d octets, recu %d", 2*l*h, n)
+		}
+		relu, ok := LireGrille(texte, l, h)
+		if !ok {
+			t.Fatal("grille ecrite illisible")
+		}
+		for i := range src {
+			if relu[i] != src[i] {
+				t.Fatalf("case %d : %d != %d", i, relu[i], src[i])
+			}
+		}
+	}
+}
+
+// Une longueur qui ne tombe sur aucun format n'est pas « lisible », mais elle ne
+// fait pas planter : les octets reviennent tels quels.
+func TestGrilleDeTravers(t *testing.T) {
+	cases, ok := LireGrille(OctetsVersBase64([]int{1, 2, 3}), 2, 2)
+	if ok {
+		t.Error("3 octets pour 4 cases : ne doit pas etre lisible")
+	}
+	if len(cases) != 3 {
+		t.Errorf("les octets doivent revenir tels quels, recu %v", cases)
+	}
+	if FormatGrille(0, 0, 0) != 0 {
+		t.Error("une grille sans case n'a pas de format")
+	}
+	// Un id hors bornes s'ecrit case vide, jamais tronque.
+	relu, _ := LireGrille(EcrireGrille([]int{70000, 300}), 2, 1)
+	if relu[0] != 0 || relu[1] != 300 {
+		t.Errorf("attendu [0 300], recu %v", relu)
+	}
+}
+
+// Un plateau en 2 octets se charge : la tuile 300 joue sur sa case.
+func TestChargerPartieLitDeuxOctets(t *testing.T) {
+	g := CreerGenres(map[string]string{"ble": "stock"})
+	tuile, err := ChargerTuile(g, Brut{"tid": 300.0, "nom": "grande ferme", "cycle_minutes": 1.0,
+		"production": []any{Brut{"ressource": "ble", "quantite": 1.0}},
+		"stockage":   Brut{"*": 10.0}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	Refiger(g, []*Tuile{tuile})
+	cat := &catalogueUnique{g: g, t: tuile}
+	rec := &recordFactice{champs: map[string]any{
+		"largeur": 2.0, "hauteur": 1.0,
+		"tilesBase64": EcrireGrille([]int{300, 0}),
+		"etats":       `[{"x":0,"z":0}]`, "t": 1000.0,
+	}}
+	p := ChargerPartie(rec, cat, 1000)
+	if len(p.Plateau.Batiments) != 1 || len(p.Figes) != 0 {
+		t.Fatalf("attendu 1 batiment joue, 0 fige ; recu %d / %d", len(p.Plateau.Batiments), len(p.Figes))
+	}
+	if p.Tiles[0] != 300 {
+		t.Errorf("case 0 : attendu 300, recu %d", p.Tiles[0])
+	}
+}
+
+type catalogueUnique struct {
+	g *Genres
+	t *Tuile
+}
+
+func (c *catalogueUnique) Genres() *Genres { return c.g }
+func (c *catalogueUnique) TuilePour(tid, _ int) *Tuile {
+	if tid == 300 {
+		return c.t
+	}
+	return nil
+}

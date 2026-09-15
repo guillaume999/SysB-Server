@@ -152,8 +152,8 @@ func ligneBrute(v any, consommation bool) Brut {
 // proximitesBrutes : les regles qui ne disent rien sont ecartees ICI, une bonne
 // fois — le moteur n'a jamais a se demander si une regle est utile.
 //
-// ⚠️ Un id hors 1..255 est ecarte : un octet de plateau ne peut pas le porter,
-// donc aucune case ne le montrerait jamais.
+// ⚠️ Un id hors 1..65535 est ecarte : une case ne peut pas le porter, donc
+// aucune case ne le montrerait jamais.
 func proximitesBrutes(v any) []any {
 	var out []any
 	for _, p := range listeDe(v) {
@@ -165,7 +165,7 @@ func proximitesBrutes(v any) []any {
 		vus := map[int]bool{}
 		for _, id := range listeDe(pb["tileIds"]) {
 			n := Entier(id, 0)
-			if n > 0 && n < 256 && !vus[n] {
+			if TileIdValide(n) && !vus[n] {
 				vus[n] = true
 				ids = append(ids, float64(n))
 			}
@@ -338,7 +338,7 @@ func technoDepuisRecord(r Enregistrement) TechnoBrute {
 	entiersValides := func(v any) []int {
 		var out []int
 		for _, x := range listeDe(LireJson(v)) {
-			if n := Entier(x, 0); n > 0 && n < 256 {
+			if n := Entier(x, 0); TileIdValide(n) {
 				out = append(out, n)
 			}
 		}
@@ -479,7 +479,7 @@ func ChargerCatalogue(src SourceRecords) *CatalogueCharge {
 	// Les tuiles, indexees par tileId.
 	for _, r := range src.Tous("tuiles") {
 		t := tuileDepuisRecord(r)
-		if t.TileId <= 0 || t.TileId > 255 || !t.Actif {
+		if !TileIdValide(t.TileId) || !t.Actif {
 			continue // hors plateau, ou brouillon du site
 		}
 		c.ParTileId[t.TileId] = t

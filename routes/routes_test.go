@@ -18,6 +18,7 @@ func (r record) Set(n string, v any) { r[n] = v }
 
 type depot struct {
 	cat      *moteur.CatalogueCharge
+	catDe    map[string]*moteur.CatalogueCharge
 	t        int
 	plateaux []record
 	users    map[string]record
@@ -41,7 +42,16 @@ type depot struct {
 }
 
 func (d *depot) Catalogue() *moteur.CatalogueCharge { return d.cat }
-func (d *depot) Maintenant() int                    { return d.t }
+
+// ⚠️ Par defaut, toutes les planetes jouent le meme catalogue — les essais
+// d'avant le 15/09. `catDe` en donne un a part a une planete.
+func (d *depot) CatalogueDe(planete string) *moteur.CatalogueCharge {
+	if c, ok := d.catDe[planete]; ok {
+		return c
+	}
+	return d.cat
+}
+func (d *depot) Maintenant() int { return d.t }
 
 func (d *depot) PlateauxDe(uid string) ([]moteur.Enregistrement, error) {
 	var out []moteur.Enregistrement
@@ -437,7 +447,10 @@ func TestGesteRefuseUneDemandeMalFormee(t *testing.T) {
 	}{
 		{"action inconnue", DemandeGeste{Plateau: "pl1", Action: "danser", X: 2, Z: 0}},
 		{"sans plateau", DemandeGeste{Action: "poser", X: 2, Z: 0, Tuile: 1}},
-		{"tuile hors bornes", DemandeGeste{Plateau: "pl1", Action: "poser", X: 2, Z: 0, Tuile: 300}},
+		// ⚠️ 300 EST VALIDE depuis le 15/09 (deux octets par case) : la borne
+		// est 65 535.
+		{"tuile hors bornes", DemandeGeste{Plateau: "pl1", Action: "poser", X: 2, Z: 0, Tuile: 65536}},
+		{"tuile nulle", DemandeGeste{Plateau: "pl1", Action: "poser", X: 2, Z: 0, Tuile: 0}},
 		{"x negatif", DemandeGeste{Plateau: "pl1", Action: "poser", X: -1, Z: 0, Tuile: 1}},
 	} {
 		if r := Geste(d, "u1", cas.dem); r.Code != 400 {

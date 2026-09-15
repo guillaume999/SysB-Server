@@ -123,12 +123,11 @@ func (m *MondeDeCases) CompterTout(vise map[int]bool) int {
 // (30/08). 3 paturages + 2 bergeries remplissent « 5 au total parmi les
 // deux ». Une case n'est jamais comptee deux fois — elle ne porte qu'un tid.
 //
-// ⚠️ Un id hors 1..255 ne trouve rien : un octet de plateau ne peut pas le
-// porter.
+// ⚠️ Un id hors 1..65535 ne trouve rien : une case ne peut pas le porter.
 func Compter(monde Monde, x, z, rayon int, tileIds []int) int {
 	vise := map[int]bool{}
 	for _, t := range tileIds {
-		if t > 0 && t < 256 {
+		if TileIdValide(t) {
 			vise[t] = true
 		}
 	}

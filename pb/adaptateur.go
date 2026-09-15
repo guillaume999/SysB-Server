@@ -73,12 +73,26 @@ func versLeMoteur(r *core.Record) moteur.Enregistrement { return enreg{r} }
 // lecture la plus lourde de la route.
 type depot struct {
 	app core.App
-	cat *moteur.CatalogueCharge
-	t   int
+	// ⚠️ LES CATALOGUES DE LA REQUETE (15/09) : le global et ceux des planetes,
+	// tous tires de la MEME lecture des collections.
+	cats *routes.Catalogues
+	t    int
 }
 
-func (d *depot) Catalogue() *moteur.CatalogueCharge { return d.cat }
-func (d *depot) Maintenant() int                    { return d.t }
+func (d *depot) Catalogue() *moteur.CatalogueCharge { return d.cats.Global() }
+
+func (d *depot) CatalogueDe(planeteId string) *moteur.CatalogueCharge {
+	return d.cats.De(planeteId)
+}
+
+// catalogues : lus une fois par requete, HORS transaction (comme avant), et
+// filtres par planete a la demande.
+func catalogues(app core.App) *routes.Catalogues {
+	return routes.NouveauxCatalogues(sourceRecords{app}, func() ([]moteur.Enregistrement, error) {
+		return (&depot{app: app}).Planetes()
+	})
+}
+func (d *depot) Maintenant() int { return d.t }
 
 func (d *depot) PlateauxDe(uid string) ([]moteur.Enregistrement, error) {
 	// ⚠️ MEME TRI QUE LE JS (`typeOfPlateau`) : l'ordre des plateaux decide
@@ -329,8 +343,7 @@ func Brancher(app core.App) {
 			if refus != "" {
 				return refuser(e, 401, refus)
 			}
-			d := &depot{app: app, cat: moteur.ChargerCatalogue(sourceRecords{app}),
-				t: moteur.Maintenant()}
+			d := &depot{app: app, cats: catalogues(app), t: moteur.Maintenant()}
 			return rendre(e, routes.Etat(d, uid, q.Get("plateau")))
 		})
 
@@ -346,11 +359,11 @@ func Brancher(app core.App) {
 			// `t` atteint et rend `fini: false` — le client rappelle (§11.1).
 			budget := moteur.Entier(q.Get("budget"), 0)
 
-			cat := moteur.ChargerCatalogue(sourceRecords{app})
+			cats := catalogues(app)
 			t := moteur.Maintenant()
 			var rep routes.Reponse
 			err := app.RunInTransaction(func(tx core.App) error {
-				rep = routes.Passe(&depot{app: tx, cat: cat, t: t}, uid, q.Get("plateau"), budget)
+				rep = routes.Passe(&depot{app: tx, cats: cats, t: t}, uid, q.Get("plateau"), budget)
 				if rep.Code >= 500 {
 					// ⚠️ ON ANNULE LA TRANSACTION sur une panne — mais on GARDE
 					// la reponse pour la rendre telle quelle. Une base a moitie
@@ -384,13 +397,13 @@ func Brancher(app core.App) {
 				return refuser(e, 401, refus)
 			}
 
-			cat := moteur.ChargerCatalogue(sourceRecords{app})
+			cats := catalogues(app)
 			t := moteur.Maintenant()
 			dem := routes.DemandeGeste{Plateau: corps.Plateau, Action: corps.Action,
 				X: corps.X, Z: corps.Z, Tuile: corps.Tuile, Version: corps.Version}
 			var rep routes.Reponse
 			err := app.RunInTransaction(func(tx core.App) error {
-				rep = routes.Geste(&depot{app: tx, cat: cat, t: t}, uid, dem)
+				rep = routes.Geste(&depot{app: tx, cats: cats, t: t}, uid, dem)
 				if rep.Code >= 500 {
 					return errAnnuler
 				}
@@ -431,14 +444,14 @@ func Brancher(app core.App) {
 				return refuser(e, 401, refus)
 			}
 
-			cat := moteur.ChargerCatalogue(sourceRecords{app})
+			cats := catalogues(app)
 			t := moteur.Maintenant()
 			var rep routes.Reponse
 			// ⚠️ TOUTE LA ROUTE DANS LA TRANSACTION : c'est ce qui rend le
 			// controle « ce plateau existe-t-il deja » infranchissable par deux
 			// ouvertures simultanees du jeu.
 			err := app.RunInTransaction(func(tx core.App) error {
-				rep = routes.Assurer(&depot{app: tx, cat: cat, t: t}, uid, corps.Type, corps.Monde, corps.Planete)
+				rep = routes.Assurer(&depot{app: tx, cats: cats, t: t}, uid, corps.Type, corps.Monde, corps.Planete)
 				if rep.Code >= 500 {
 					return errAnnuler
 				}
@@ -454,7 +467,12 @@ func Brancher(app core.App) {
 	})
 
 	brancherCrochetTuiles(app)
+	brancherCrochetConception(app)
 	brancherPlaneteJoueur(app)
+	brancherMessages(app)
+	brancherChat(app)
+	brancherAmis(app)
+	brancherGuildes(app)
 }
 
 const errAnnuler = errT("annulation volontaire")

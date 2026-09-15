@@ -5,9 +5,20 @@
 //  https://pb-sysb.physiooffice.com/_/ , connecté en superuser.
 //
 //  CE QU'IL FAIT
-//    1. tuile3dmodel.joueurs_autorises   relation multiple → users
-//    2. icones.joueurs_autorises         relation multiple → users
+//    1. tuile3dmodel.joueurs_autorises   relation MULTIPLE → users
+//    2. icones.joueurs_autorises         relation MULTIPLE → users
 //    3. icones.usage                     ajoute la valeur « autre »
+//    4. RÉPARE tuile3dmodel.planetes_autorisees et icones.planetes_autorisees,
+//       ainsi qu'un joueurs_autorises déjà posé par la première version de ce
+//       patch : ils passent de relation SIMPLE à relation MULTIPLE.
+//
+//  ⚠️⚠️ LE PIÈGE (relevé en prod le 15/09) : `maxSelect: 0` ne veut PAS dire
+//  « sans plafond ». PocketBase range le champ en relation SIMPLE (une seule
+//  valeur, rendue en texte). Le patch 4 du 14/09 avait posé
+//  `planetes_autorisees` ainsi : une icône ou un modèle ne pouvait être ouvert
+//  qu'à UNE planète, et l'onglet Partage du site plantait (page noire).
+//  → toujours un plafond EXPLICITE (ici 999). La valeur déjà en place est
+//  conservée par PocketBase au passage en multiple.
 //
 //  POURQUOI — les onglets Partage des fiches 3DmodelTuile et Icônes du site
 //  (15/09) ouvrent un modèle 3D ou une icône à TOUS les joueurs
@@ -63,6 +74,9 @@ const GO = false; // ← passe à true pour écrire
     return c;
   };
 
+  // ⚠️ PAS 0 : 0 fait une relation SIMPLE. Voir l'en-tête.
+  const PLAFOND = 999;
+
   const collections = await lire();
   const users = par(collections, "users");
 
@@ -73,7 +87,7 @@ const GO = false; // ← passe à true pour écrire
     collectionId: users.id,
     cascadeDelete: false,
     minSelect: 0,
-    maxSelect: 0, // 0 = sans plafond
+    maxSelect: PLAFOND,
   };
 
   // --- Le plan -------------------------------------------------------------
@@ -86,6 +100,16 @@ const GO = false; // ← passe à true pour écrire
     if (!fields.some((f) => f.name === "joueurs_autorises")) {
       fields.push(champJoueurs);
       aFaire.push("joueurs_autorises");
+    }
+    for (const f of fields) {
+      if (
+        (f.name === "joueurs_autorises" || f.name === "planetes_autorisees") &&
+        f.type === "relation" &&
+        !(f.maxSelect > 1)
+      ) {
+        aFaire.push(`${f.name} : simple (maxSelect ${f.maxSelect}) → multiple`);
+        f.maxSelect = PLAFOND;
+      }
     }
     if (nom === "icones") {
       const usage = fields.find((f) => f.name === "usage");
@@ -122,11 +146,18 @@ const GO = false; // ← passe à true pour écrire
 
   // --- Vérification --------------------------------------------------------
   const fin = await lire();
-  const ok3d = par(fin, "tuile3dmodel").fields.some((f) => f.name === "joueurs_autorises");
-  const icones = par(fin, "icones");
-  const okIc = icones.fields.some((f) => f.name === "joueurs_autorises");
-  const okAutre = (icones.fields.find((f) => f.name === "usage")?.values || []).includes("autre");
-  console.log(`${ok3d ? "✅" : "❌"} tuile3dmodel.joueurs_autorises`);
-  console.log(`${okIc ? "✅" : "❌"} icones.joueurs_autorises`);
+  for (const nom of ["tuile3dmodel", "icones"]) {
+    const col = par(fin, nom);
+    for (const champ of ["joueurs_autorises", "planetes_autorisees"]) {
+      const f = col.fields.find((x) => x.name === champ);
+      const ok = !!f && f.maxSelect > 1;
+      console.log(`${ok ? "✅" : "❌"} ${nom}.${champ} multiple (maxSelect ${f?.maxSelect})`);
+    }
+  }
+  const okAutre = (par(fin, "icones").fields.find((f) => f.name === "usage")?.values || []).includes("autre");
   console.log(`${okAutre ? "✅" : "❌"} icones.usage contient « autre »`);
+  // Contrôle sur une donnée : la relation doit revenir en TABLEAU.
+  const un = await appel("/api/collections/tuile3dmodel/records?perPage=1");
+  const v = un.items?.[0]?.planetes_autorisees;
+  console.log(`${Array.isArray(v) ? "✅" : "❌"} un record rend planetes_autorisees en tableau :`, v);
 })();
