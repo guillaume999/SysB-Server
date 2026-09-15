@@ -46,6 +46,7 @@ func partageDe(app core.App, collection, id string) routes.Partageable {
 	return routes.Partageable{
 		ToutesPlanetes:     rec.GetBool("toutes_planetes"),
 		PlanetesAutorisees: rec.GetStringSlice("planetes_autorisees"),
+		JoueursAutorises:   rec.GetStringSlice("joueurs_autorises"),
 	}
 }
 
@@ -69,12 +70,14 @@ func brancherCrochetTuiles(app core.App) {
 
 		planeteId := e.Record.GetString("planete")
 		nomPlanete := planeteId
-		planeteGame := false
+		// ⚠️ VIDE = PLANETE GAME. Un seul champ separe les deux familles.
+		// ⚠️ Une planete INTROUVABLE ne doit pas passer pour une planete game :
+		// on lui prete un proprietaire impossible, donc « a personne ».
+		proprietaire := "?introuvable"
 		if planeteId != "" {
 			if p, err := e.App.FindRecordById("planetes", planeteId); err == nil && p != nil {
 				nomPlanete = p.GetString("nom")
-				// ⚠️ VIDE = PLANETE GAME. Un seul champ separe les deux familles.
-				planeteGame = p.GetString("proprietaire") == ""
+				proprietaire = p.GetString("proprietaire")
 			}
 		}
 
@@ -85,7 +88,7 @@ func brancherCrochetTuiles(app core.App) {
 			partageDe(e.App, "tuile3dmodel", modeleId),
 			partageDe(e.App, "icones", iconeId),
 			modeleId != "", iconeId != "",
-			planeteId, nomPlanete, planeteGame)
+			planeteId, nomPlanete, proprietaire)
 
 		if refus != "" {
 			// 403 et pas 400 : ce n'est pas une saisie invalide, c'est un droit
