@@ -33,9 +33,11 @@ type depot struct {
 	// ⚠️ `Sauver` echoue quand c'est demande : une route doit dire une panne
 	// d'ecriture, pas repondre 200.
 	sauverCasse bool
-	// Ce que `ma-planete` a fabrique.
+	// Ce que `AssurerPlaneteDe` a fabrique.
 	planetesCreees []record
 	templatesCrees []record
+	// nil = `templates` complete ; sinon exactement ces champs-la.
+	champsTemplates []string
 }
 
 func (d *depot) Catalogue() *moteur.CatalogueCharge { return d.cat }
@@ -110,12 +112,36 @@ func (d *depot) ModeleDuType(typeVoulu, planeteId string) (moteur.Enregistrement
 	return nil, nil
 }
 
+// ⚠️ Les planetes creees en font partie : un second appel doit les retrouver.
 func (d *depot) Planetes() ([]moteur.Enregistrement, error) {
 	out := make([]moteur.Enregistrement, 0, len(d.planetes))
 	for _, p := range d.planetes {
 		out = append(out, p)
 	}
+	for _, p := range d.planetesCreees {
+		out = append(out, p)
+	}
 	return out, nil
+}
+
+func (d *depot) TemplatesDe(planeteId string) ([]moteur.Enregistrement, error) {
+	var out []moteur.Enregistrement
+	for _, l := range [][]record{d.templates, d.templatesCrees} {
+		for _, m := range l {
+			if moteur.Texte(m["planete"]) == planeteId {
+				out = append(out, m)
+			}
+		}
+	}
+	return out, nil
+}
+
+func (d *depot) ChampsTemplates() []string {
+	if d.champsTemplates == nil {
+		return []string{"id", "nom", "typeOfPlateau", "typeOfPlateau2", "planete", "appartient",
+			"largeur", "hauteur", "tilesBase64", "etats", "partages", "actif", "amorcage"}
+	}
+	return d.champsTemplates
 }
 
 func (d *depot) NouveauPlateau() (moteur.Enregistrement, error) {
@@ -123,7 +149,7 @@ func (d *depot) NouveauPlateau() (moteur.Enregistrement, error) {
 	return d.dernier, nil
 }
 
-// ⚠️ LES CREATEURS DE `ma-planete`. Le faux rend un id tout fait : la vraie base
+// ⚠️ LES CREATEURS DE `AssurerPlaneteDe`. Le faux rend un id tout fait : la vraie base
 // le genere, mais le sujet des essais est ce qu'on ECRIT dessus, pas l'id.
 func (d *depot) NouvellePlanete() (moteur.Enregistrement, error) {
 	r := record{"id": "pl-planete-neuve"}

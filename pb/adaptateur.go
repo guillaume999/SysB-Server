@@ -191,7 +191,8 @@ func (d *depot) Planetes() ([]moteur.Enregistrement, error) {
 	return out, nil
 }
 
-// NouvellePlanete / NouveauTemplate : les deux records que `ma-planete` cree.
+// NouvellePlanete / NouveauTemplate : les records que `AssurerPlaneteDe` cree
+// (planete d'un joueur, a l'inscription et au rattrapage du demarrage).
 //
 // ⚠️ C'EST LE SERVEUR QUI LES POSE, PAS LE CLIENT. `templates.create` est admin
 // dans les regles d'API, exprès : un joueur qui pourrait creer un modele
@@ -203,6 +204,34 @@ func (d *depot) NouvellePlanete() (moteur.Enregistrement, error) {
 		return nil, err
 	}
 	return versLeMoteur(core.NewRecord(col)), nil
+}
+
+// TemplatesDe : les modeles rattaches a une planete.
+func (d *depot) TemplatesDe(planeteId string) ([]moteur.Enregistrement, error) {
+	recs, err := d.app.FindRecordsByFilter("templates", "planete = {:planete}",
+		"created", 0, 0, map[string]any{"planete": planeteId})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]moteur.Enregistrement, 0, len(recs))
+	for _, r := range recs {
+		out = append(out, versLeMoteur(r))
+	}
+	return out, nil
+}
+
+// ChampsTemplates : les champs que `templates` retient VRAIMENT — meme garde-fou
+// que `ChampsPlateau`, pour `appartient`.
+func (d *depot) ChampsTemplates() []string {
+	col, err := d.app.FindCollectionByNameOrId("templates")
+	if err != nil || col == nil {
+		return nil
+	}
+	noms := make([]string, 0, len(col.Fields))
+	for _, f := range col.Fields {
+		noms = append(noms, f.GetName())
+	}
+	return noms
 }
 
 func (d *depot) NouveauTemplate() (moteur.Enregistrement, error) {
@@ -421,50 +450,11 @@ func Brancher(app core.App) {
 			return rendre(e, rep)
 		})
 
-		// ⚠️ LA PLANETE D'UN JOUEUR SE CREE ICI, ET NULLE PART AILLEURS. Ni a
-		// l'inscription (elle serait injouable en attendant que l'admin ouvre
-		// quelque chose), ni par le client en ecrivant dans `planetes` (la
-		// collection est en creation admin). Voir `routes/maplanete.go`.
-		se.Router.POST("/api/sysb/ma-planete", func(e *core.RequestEvent) error {
-			var corps struct {
-				Joueur   string `json:"joueur"`
-				Nom      string `json:"nom"`
-				Modele3d string `json:"modele3d"`
-				Icone    string `json:"icone"`
-			}
-			if err := e.BindBody(&corps); err != nil {
-				return refuser(e, 400, "corps illisible : "+err.Error())
-			}
-			uid, _, refus := qui(e, corps.Joueur)
-			if refus != "" {
-				return refuser(e, 401, refus)
-			}
-
-			cat := moteur.ChargerCatalogue(sourceRecords{app})
-			t := moteur.Maintenant()
-			var rep routes.Reponse
-			// ⚠️ TOUTE LA ROUTE DANS LA TRANSACTION : la planete et ses DEUX
-			// modeles partent ensemble, ou pas du tout. Une planete sans modele
-			// est une planete qu'on ne peut pas ouvrir, et personne ne saurait
-			// qu'il faut la reparer.
-			err := app.RunInTransaction(func(tx core.App) error {
-				rep = routes.MaPlanete(&depot{app: tx, cat: cat, t: t}, uid,
-					corps.Nom, corps.Modele3d, corps.Icone)
-				if rep.Code >= 400 {
-					return errAnnuler
-				}
-				return nil
-			})
-			if err != nil && err != errAnnuler {
-				return refuser(e, 500, "transaction annulee : "+err.Error())
-			}
-			return rendre(e, rep)
-		})
-
 		return se.Next()
 	})
 
 	brancherCrochetTuiles(app)
+	brancherPlaneteJoueur(app)
 }
 
 const errAnnuler = errT("annulation volontaire")

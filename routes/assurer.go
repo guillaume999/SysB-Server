@@ -278,7 +278,7 @@ func Assurer(d DepotCreateur, uid, typeVoulu, monde, planeteId string) Reponse {
 			return erreur(400, `"planete" (son identifiant) attendu : on fabrique un plateau SUR `+
 				`une planete, jamais « quelque part ».`, map[string]any{"cree": false})
 		}
-		return erreur(404, "Aucune planete ne porte "+quoi+". Verifie l'onglet Planetes du site.",
+		return erreur(404, "Aucune planete ne porte "+quoi+". Verifie l'onglet Modeles du site.",
 			map[string]any{"cree": false})
 	}
 	planeteId = moteur.Texte(moteur.Champ(planete, "id"))

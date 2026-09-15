@@ -164,9 +164,15 @@ type BlocPlateau struct {
 	Id            string `json:"id"`
 	Nom           string `json:"nom"`
 	TypeOfPlateau string `json:"typeOfPlateau"`
-	Largeur       int    `json:"largeur"`
-	Hauteur       int    `json:"hauteur"`
-	Version       int    `json:"version"`
+	// ⚠️ LA PLANETE, depuis le 14/09 — le client en a besoin pour savoir QUEL
+	// CATALOGUE charger. Sans elle il chargerait celui de la planete qu'il
+	// croyait ouvrir, et le magasin proposerait des tuiles que la pose refuse.
+	// ⚠️ Lue sur le RECORD, pas sur la partie : le moteur n'a aucune raison de
+	// connaitre les planetes, et lui en donner une serait une frontiere de moins.
+	Planete string `json:"planete"`
+	Largeur int    `json:"largeur"`
+	Hauteur int    `json:"hauteur"`
+	Version int    `json:"version"`
 	// ⚠️ LE SOL TEL QU'EN BASE : le rattrapage ne touche JAMAIS au terrain, seul
 	// un geste change le sol.
 	TilesBase64 string                `json:"tilesBase64"`
@@ -216,6 +222,7 @@ func FaireBloc(r Enregistrement, partie *Partie, technos map[string]int, indicat
 	return Bloc{
 		Plateau: BlocPlateau{
 			Id: partie.Id, Nom: partie.Nom, TypeOfPlateau: partie.TypeOfPlateau,
+			Planete: Texte(Champ(r, "planete")),
 			Largeur: partie.Largeur, Hauteur: partie.Hauteur,
 			Version:     Entier(Champ(r, "version"), 0),
 			TilesBase64: Texte(Champ(r, "tilesBase64")),
