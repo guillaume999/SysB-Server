@@ -21,8 +21,9 @@ package routes
 //  un modele que personne n'a range. D'ou le pseudo « game » interdit
 //  (`PseudoReserve`) — sinon deux lectures du meme mot.
 //
-//  ⚠️ `partages` RESTE POSE : c'est lui que lit la regle d'API d'`update` sur
-//  `templates`. `appartient` dit a qui c'est ; `partages` donne le crayon.
+//  ⚠️ `appartient` dit a qui c'est, il ne donne AUCUN droit d'ecriture : le
+//  partage de modele (`templates.partages`) a ete retire le 15/09, seul
+//  l'admin modifie un modele.
 //
 //  ⚠️ UNE SEULE PLANETE PERSO PAR JOUEUR. L'index unique de `planetes` ne porte
 //  que le nom : la regle se tient ICI.
@@ -216,8 +217,6 @@ func AssurerPlaneteDe(d DepotPlaneteJoueur, uid string) Reponse {
 		tpl.Set("hauteur", HauteurDeDepart)
 		tpl.Set("tilesBase64", vide)
 		tpl.Set("etats", []any{})
-		// ⚠️ C'EST `partages` QUI LUI DONNE LE CRAYON (regle d'API d'`update`).
-		tpl.Set("partages", []string{uid})
 		tpl.Set("actif", true)
 		if err := d.Sauver(tpl); err != nil {
 			return erreur(500, "ecriture d'un modele : "+err.Error(),

@@ -139,7 +139,7 @@ func (d *depot) TemplatesDe(planeteId string) ([]moteur.Enregistrement, error) {
 func (d *depot) ChampsTemplates() []string {
 	if d.champsTemplates == nil {
 		return []string{"id", "nom", "typeOfPlateau", "typeOfPlateau2", "planete", "appartient",
-			"largeur", "hauteur", "tilesBase64", "etats", "partages", "actif", "amorcage"}
+			"largeur", "hauteur", "tilesBase64", "etats", "actif", "amorcage"}
 	}
 	return d.champsTemplates
 }

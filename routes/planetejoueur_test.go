@@ -55,9 +55,8 @@ func TestLaPlaneteDuJoueurPorteSonPseudoEtSesDeuxModeles(t *testing.T) {
 		if moteur.Texte(tpl["appartient"]) != "u1" {
 			t.Errorf("⚠️ appartient = %q, attendu le joueur", tpl["appartient"])
 		}
-		parts, _ := tpl["partages"].([]string)
-		if len(parts) != 1 || parts[0] != "u1" {
-			t.Errorf("⚠️ le joueur n'a pas le crayon sur son propre modele : %v", tpl["partages"])
+		if _, pose := tpl["partages"]; pose {
+			t.Errorf("⚠️ `partages` est retire (15/09), il ne doit plus etre ecrit : %v", tpl["partages"])
 		}
 		n := len(moteur.Base64VersOctets(moteur.Texte(tpl["tilesBase64"])))
 		if n != LargeurDeDepart*HauteurDeDepart {
